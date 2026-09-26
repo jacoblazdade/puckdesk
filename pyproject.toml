@@ -15,6 +15,10 @@ dependencies = [
     "uvicorn>=0.30",
 ]
 
+[project.optional-dependencies]
+# Local podcast transcription on Apple Silicon (the Mac mini).
+mac = ["mlx-whisper; sys_platform == 'darwin' and platform_machine == 'arm64'"]
+
 [project.scripts]
 puckdesk = "puckdesk.cli:main"
 

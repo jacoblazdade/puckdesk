@@ -1,0 +1,34 @@
+# News sources puckdesk reads. Edit freely; changes apply on the next run.
+
+[[podcasts]]
+name = "Keeping Karlsson"
+feed = "https://feeds.simplecast.com/FxLigH_r"
+hosts = ["Elan Dubrofsky", "Brian Kom"]
+# Only episodes this recent are transcribed; the back catalogue (600+) is skipped.
+backfill_days = 21
+
+[[feeds]]
+name = "DobberHockey"
+url = "https://dobberhockey.com/feed/"
+
+[daily_faceoff]
+# Line combinations, PP units, goalies and injuries per team (free, server-rendered).
+line_combinations = "https://www.dailyfaceoff.com/teams/{slug}/line-combinations"
+starting_goalies = "https://www.dailyfaceoff.com/starting-goalies/{date}"
+
+[x]
+# Polled only when X_BEARER_TOKEN is set in .env (X API, $0.005 per post read).
+accounts = [
+  "GameDayLines",     # line combinations and starting goalies from beat writers
+  "GameDayNewsNHL",   # injuries and news from beat writers
+  "DFOFantasy",       # Daily Faceoff fantasy
+  "DailyFaceoff",
+  "DobberHockey",
+  "keepingkarlsson",
+]
+monthly_read_cap = 4000
+
+[paywalled]
+# Need a subscription; not fetched automatically.
+left_wing_lock = "https://leftwinglock.com/"
+frozen_tools = "https://frozenpool.dobbersports.com/"

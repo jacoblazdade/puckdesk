@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 from starlette.requests import Request
 from starlette.responses import JSONResponse, PlainTextResponse, RedirectResponse, Response
 
-from . import names, yahoo
+from . import lines, media, names, yahoo
 from .config import Settings
 from .engine import Engine, today_eastern
 from .models import FreeAgentIn, LeagueState
@@ -34,6 +34,10 @@ Typical flow: read the league from the user's Yahoo connector (for example
 Flaim), assemble a LeagueState (call league_state_guide for the exact shape),
 then call morning_digest. The latest digest is stored and can be re-read with
 latest_digest. Roster tags live on the server: set_tags / get_tags.
+
+News: search_media searches Keeping Karlsson podcast transcripts (with
+timestamps), DobberHockey articles and X posts. team_lines and lineup_changes
+come from Daily Faceoff line combinations (PP units, lines, goalies, injuries).
 """
 
 
@@ -56,9 +60,29 @@ def build(settings: Settings) -> MCPServer:
         """Full morning digest: matchup outlook, add/drop moves within the add budget,
         cold Core players worth holding, hot shooters due to cool off, and next week's schedule.
         The result is stored and can be re-read with latest_digest."""
-        dg = Engine(store, state).digest(max_moves=max_moves)
+        eng = Engine(store, state)
+        dg = eng.digest(max_moves=max_moves)
+        try:
+            dg.update(_news(eng, dg))
+        except Exception as e:  # noqa: BLE001 - news is a bonus; the digest still stands
+            dg["notes"] = dg.get("notes", []) + [f"News unavailable: {e}"]
         dg["digest_id"] = store.save_digest(state.league.name, dg)
         return dg
+
+    def _news(eng: Engine, dg: dict) -> dict:
+        """Lineup changes and podcast/article mentions for players that matter this morning."""
+        adds = [m["add"]["name"] for m in dg["moves"]["moves"]]
+        mine = [p.name for p in eng.me]
+        interest = {names.person(n) for n in mine + adds + [fa.name for fa in eng.state.free_agents]}
+        teams = sorted({p.team for p in eng.me} | {m["add"]["team"] for m in dg["moves"]["moves"]})
+        changes = [c for c in lines.recent_changes(store, days=2, teams=teams) if names.person(c["player"]) in interest]
+        mentions = {}
+        for n in adds + mine:
+            last = n.split(" ")[-1]
+            hits = media.search(store, f'"{n}" OR "{last}"', days=10, limit=3)
+            if hits:
+                mentions[n] = hits
+        return {"lineup_changes": changes, "mentions": mentions}
 
     @mcp.tool(annotations=READ)
     def leagues() -> dict:
@@ -162,6 +186,42 @@ def build(settings: Settings) -> MCPServer:
                         "projected_per_game": {k: round(v, 3) for k, v in r.per_game.items()}})
         out["games_next_7_days"] = [str(d) for d in store.team_dates(ref.team, today, today + timedelta(days=6))]
         return out
+
+    @mcp.tool(annotations=READ)
+    def search_media(query: str, days: int = 14, limit: int = 12) -> dict:
+        """Search Keeping Karlsson transcripts, DobberHockey articles and X posts, newest first.
+        Podcast hits carry the episode id and a timestamp (h:mm:ss); use podcast_transcript to read around it.
+        Query syntax: words, "exact phrases", or, -exclude."""
+        return {"query": query, "hits": media.search(store, query, days=days, limit=limit)}
+
+    @mcp.tool(annotations=READ)
+    def podcast_episodes(limit: int = 8) -> dict:
+        """Recent podcast episodes and whether they're transcribed yet."""
+        return {"episodes": media.episodes(store, limit)}
+
+    @mcp.tool(annotations=READ)
+    def podcast_transcript(episode_id: int, start: str = "0:00:00", minutes: float = 5) -> dict:
+        """Transcript of an episode from a timestamp (h:mm:ss or seconds) for a few minutes."""
+        parts = [float(p) for p in str(start).split(":")]
+        sec = 0.0
+        for p in parts:
+            sec = sec * 60 + p
+        return media.transcript(store, episode_id, sec, minutes)
+
+    @mcp.tool(annotations=READ)
+    def recent_articles(days: int = 3, limit: int = 20) -> dict:
+        """Newest articles from the configured feeds (DobberHockey), with a short preview."""
+        return {"articles": media.recent_articles(store, days, limit)}
+
+    @mcp.tool(annotations=READ)
+    def team_lines(team: str) -> dict:
+        """Latest Daily Faceoff line combinations for a team: lines, PP units, goalies, injuries."""
+        return lines.latest(store, team) or {"team": team, "error": "No line combinations stored yet."}
+
+    @mcp.tool(annotations=READ)
+    def lineup_changes(days: int = 3, teams: list[str] | None = None) -> dict:
+        """Players who moved lines or PP units, goalie order changes and new injuries, from Daily Faceoff."""
+        return {"changes": lines.recent_changes(store, days, teams)}
 
     @mcp.tool(annotations=READ)
     def data_status() -> dict:

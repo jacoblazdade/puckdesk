@@ -26,6 +26,11 @@ For each of my two Yahoo fantasy hockey leagues:
    on the Puckdesk Digest page.
 4. Finish with at most three lines per league: the moves to make before
    waivers and the swing categories. If a move says `confirm_goalie_start`,
-   say it needs the 17:00 starter check.
+   say it needs the 17:00 starter check. Mention any lineup change or
+   podcast/article mention in the digest that affects a suggested move.
+5. On Sundays, also call puckdesk `search_media` for my players and the top
+   free agents over the last 7 days, and add what Keeping Karlsson and
+   DobberHockey said about next week's adds and drops (with the episode
+   timestamp).
 
 If a connector call fails, say which one and still run whatever you can.

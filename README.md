@@ -68,6 +68,14 @@ uv run pytest                 # tests (uses an embedded Postgres)
 - NHL schedule, rosters and stats: `api-web.nhle.com` and
   `api.nhle.com/stats/rest`. Both are public but undocumented.
 - Yahoo Fantasy Sports API: read-only, once access is approved.
+- Keeping Karlsson podcast (RSS), transcribed locally with Whisper and
+  searchable with timestamps.
+- DobberHockey articles (RSS, full text).
+- Daily Faceoff line combinations: lines, PP units, goalies and injuries, with
+  change detection.
+- Optional: a few X accounts through the paid X API.
+
+The list lives in `sources.toml`.
 
 ## The digest page
 

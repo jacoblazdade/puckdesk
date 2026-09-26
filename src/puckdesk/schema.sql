@@ -103,3 +103,87 @@ create table if not exists oauth_tokens (
     expires_at     timestamptz not null,
     updated_at     timestamptz not null default now()
 );
+
+-- News and podcasts ---------------------------------------------------------------
+
+create table if not exists podcast_episodes (
+    id              bigserial primary key,
+    podcast         text not null,
+    guid            text not null unique,
+    title           text not null,
+    published       timestamptz,
+    duration_sec    integer,
+    audio_url       text,
+    link            text,
+    status          text not null default 'new',   -- new, transcribed, skipped, failed
+    error           text,
+    transcribed_at  timestamptz
+);
+create index if not exists podcast_episodes_published on podcast_episodes (published desc);
+
+-- About a minute of transcript each, so search hits come with a timestamp.
+create table if not exists transcript_windows (
+    episode_id  bigint not null references podcast_episodes (id) on delete cascade,
+    idx         integer not null,
+    start_sec   real not null,
+    end_sec     real not null,
+    text        text not null,
+    tsv         tsvector generated always as (to_tsvector('english', text)) stored,
+    primary key (episode_id, idx)
+);
+create index if not exists transcript_windows_tsv on transcript_windows using gin (tsv);
+
+create table if not exists articles (
+    id          bigserial primary key,
+    source      text not null,
+    guid        text not null unique,
+    title       text not null,
+    link        text,
+    published   timestamptz,
+    categories  text[],
+    content     text,
+    tsv         tsvector generated always as (to_tsvector('english', coalesce(title, '') || ' ' || coalesce(content, ''))) stored
+);
+create index if not exists articles_tsv on articles using gin (tsv);
+create index if not exists articles_published on articles (published desc);
+
+create table if not exists posts (
+    id         text primary key,
+    account    text not null,
+    posted_at  timestamptz,
+    text       text not null,
+    url        text,
+    tsv        tsvector generated always as (to_tsvector('english', text)) stored
+);
+create index if not exists posts_tsv on posts using gin (tsv);
+create index if not exists posts_posted_at on posts (posted_at desc);
+
+create table if not exists x_state (
+    account   text primary key,
+    user_id   text,
+    since_id  text
+);
+create table if not exists x_usage (
+    month  text primary key,
+    reads  integer not null default 0
+);
+
+-- Daily Faceoff line combinations, one row per change.
+create table if not exists team_lines (
+    team        text not null,
+    fetched_at  timestamptz not null default now(),
+    updated_at  text,
+    lines       jsonb not null,
+    primary key (team, fetched_at)
+);
+
+create table if not exists lineup_changes (
+    id           bigserial primary key,
+    team         text not null,
+    player       text not null,
+    field        text not null,            -- line, pp_unit, goalie, injury
+    old_value    text,
+    new_value    text,
+    detected_at  timestamptz not null default now()
+);
+create index if not exists lineup_changes_detected on lineup_changes (detected_at desc);

@@ -40,10 +40,21 @@ cd ~/puckdesk
 bash deploy/macmini/setup.sh
 ```
 
-The script installs Postgres and uv, creates `.env` with a random secret,
-checks the NHL endpoints, loads the schedule, last season's totals and
-current rosters, and starts two background jobs. It ends with
-`ok <- server is up`.
+The script installs Postgres, uv and ffmpeg, creates `.env` with a random
+secret, checks the NHL endpoints and news sources, loads the schedule, last
+season's totals, current rosters, Daily Faceoff lines, the Keeping Karlsson
+feed and DobberHockey articles, and starts four background jobs:
+
+| Job | When | What |
+| --- | --- | --- |
+| server | always | the MCP server for Claude |
+| nightly | 05:30, 06:45, 12:00 | NHL schedule, rosters, box scores |
+| lines | 06:20, 11:30, 16:20, 21:30 | Daily Faceoff lines, PP units, goalies, injuries |
+| media | every 2 hours | Keeping Karlsson (transcribed locally), DobberHockey, X posts |
+
+The first transcription downloads the Whisper model (about 1.6 GB). It ends
+with `ok <- server is up`. Check the news sources with
+`uv run puckdesk verify-sources`; it shows what the Daily Faceoff parser found.
 
 ## 4. Mac mini: make it reachable (5 min)
 
@@ -89,6 +100,20 @@ current rosters, and starts two background jobs. It ends with
 Ask Claude to schedule the prompt in `docs/claude-digest-task.md` daily at
 06:50, with a push notification when it finishes. Add a 16:50 run for the
 goalie check if you want it.
+
+## Optional: X posts
+
+The lineup account is @GameDayLines (line combinations and starting goalies
+from beat writers). The accounts are listed in `sources.toml`. X charges
+$0.005 per post read, so this stays off until you add a token:
+
+1. Create a developer account at https://developer.x.com and an app with
+   pay-per-use billing.
+2. Put its bearer token in `.env` as `X_BEARER_TOKEN=...`. The media job then
+   polls the accounts every two hours, capped at `monthly_read_cap` reads
+   (4,000 reads is about $20 a month).
+
+Left Wing Lock and Frozen Tools need subscriptions, so they aren't fetched.
 
 ## When Yahoo approves access
 

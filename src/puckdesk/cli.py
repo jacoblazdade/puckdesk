@@ -99,6 +99,69 @@ def cmd_serve(a) -> None:
     uvicorn.run(app(s), host=s.host, port=s.port, log_level="info")
 
 
+def cmd_media(a) -> None:
+    """Podcasts, article feeds and (if configured) X posts."""
+    import os
+
+    from . import media
+
+    src = media.load_sources()
+    store = _store()
+    out: dict = {"articles": {}, "episodes": {}, "transcribed": []}
+    for f in src.get("feeds", []):
+        try:
+            out["articles"][f["name"]] = media.sync_feed(store, f["name"], f["url"])
+        except Exception as e:  # noqa: BLE001
+            out["articles"][f["name"]] = f"error: {e}"
+    prompts = []
+    for pod in src.get("podcasts", []):
+        try:
+            out["episodes"][pod["name"]] = media.sync_podcast(store, pod["name"], pod["feed"], pod.get("backfill_days", 21))
+        except Exception as e:  # noqa: BLE001
+            out["episodes"][pod["name"]] = f"error: {e}"
+        prompts.append(f"{pod['name']} fantasy hockey podcast with {', '.join(pod.get('hosts', []))}.")
+    if not a.no_transcribe:
+        out["transcribed"] = media.transcribe_pending(store, limit=a.limit, prompt=" ".join(prompts) + " NHL players, power play, waivers.")
+    token = os.environ.get("X_BEARER_TOKEN")
+    if token and src.get("x", {}).get("accounts"):
+        from . import xposts
+
+        out["x"] = xposts.poll(store, token, src["x"]["accounts"], src["x"].get("monthly_read_cap", 4000))
+    print(json.dumps(out, indent=2, default=str))
+
+
+def cmd_lines(a) -> None:
+    from . import lines
+
+    print(json.dumps(lines.sync_all(_store(), a.teams or None), indent=2))
+
+
+def cmd_verify_sources(a) -> None:
+    from . import lines, media
+
+    src = media.load_sources()
+    out: dict = {}
+    for pod in src.get("podcasts", []):
+        try:
+            items = media.parse_rss(media.fetch(pod["feed"]))
+            out[pod["name"]] = {"episodes": len(items), "newest": items[0].title if items else None,
+                                "audio": bool(items and items[0].audio_url)}
+        except Exception as e:  # noqa: BLE001
+            out[pod["name"]] = f"error: {e}"
+    for f in src.get("feeds", []):
+        try:
+            items = media.parse_rss(media.fetch(f["url"]))
+            out[f["name"]] = {"items": len(items), "newest": items[0].title if items else None,
+                              "content_chars": len(items[0].content or "") if items else 0}
+        except Exception as e:  # noqa: BLE001
+            out[f["name"]] = f"error: {e}"
+    try:
+        out["daily_faceoff"] = lines.verify(a.team)
+    except Exception as e:  # noqa: BLE001
+        out["daily_faceoff"] = f"error: {e}"
+    print(json.dumps(out, indent=2, default=str))
+
+
 def cmd_yahoo_dump(a) -> None:
     from . import yahoo
 
@@ -141,6 +204,16 @@ def main(argv: list[str] | None = None) -> None:
     s.add_argument("--moves", type=int, default=3)
     s.set_defaults(fn=cmd_digest)
     sub.add_parser("serve", help="run the MCP server").set_defaults(fn=cmd_serve)
+    s = sub.add_parser("media", help="podcasts, article feeds and X posts")
+    s.add_argument("--limit", type=int, default=2, help="episodes to transcribe per run")
+    s.add_argument("--no-transcribe", action="store_true")
+    s.set_defaults(fn=cmd_media)
+    s = sub.add_parser("lines", help="Daily Faceoff line combinations and lineup changes")
+    s.add_argument("teams", nargs="*")
+    s.set_defaults(fn=cmd_lines)
+    s = sub.add_parser("verify-sources", help="check the podcast, feeds and Daily Faceoff parsing")
+    s.add_argument("--team", default="TOR")
+    s.set_defaults(fn=cmd_verify_sources)
     s = sub.add_parser("yahoo-dump", help="save raw Yahoo responses (after API approval)")
     s.add_argument("--league-key")
     s.add_argument("--out", default="yahoo-dump")

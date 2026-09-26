@@ -10,13 +10,14 @@ echo "==> Homebrew packages"
 command -v brew >/dev/null || { echo "Install Homebrew first: https://brew.sh"; exit 1; }
 brew list postgresql@17 >/dev/null 2>&1 || brew install postgresql@17
 command -v uv >/dev/null || brew install uv
+command -v ffmpeg >/dev/null || brew install ffmpeg   # audio decoding for Whisper
 brew services start postgresql@17
 PG_BIN="$(brew --prefix postgresql@17)/bin"
 sleep 2
 "$PG_BIN/createdb" puckdesk 2>/dev/null || echo "database puckdesk already exists"
 
-echo "==> Python environment"
-uv sync
+echo "==> Python environment (with local Whisper)"
+uv sync --extra mac
 
 if [ ! -f .env ]; then
   echo "==> Writing .env"
@@ -42,11 +43,16 @@ uv run puckdesk sync-priors
 uv run puckdesk sync-rosters
 uv run puckdesk status
 
+echo "==> News sources"
+uv run puckdesk verify-sources
+uv run puckdesk lines
+uv run puckdesk media --no-transcribe   # the background job transcribes; the first run downloads the Whisper model (~1.6 GB)
+
 echo "==> Background jobs (launchd)"
 UV="$(command -v uv)"
 AGENTS="$HOME/Library/LaunchAgents"
 mkdir -p "$AGENTS" "$HOME/Library/Logs"
-for name in server nightly; do
+for name in server nightly media lines; do
   src="deploy/macmini/com.puckdesk.$name.plist"
   dst="$AGENTS/com.puckdesk.$name.plist"
   sed -e "s#__REPO__#$REPO#g" -e "s#__UV__#$UV#g" -e "s#__HOME__#$HOME#g" "$src" > "$dst"

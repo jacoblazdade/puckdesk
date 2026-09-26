@@ -161,6 +161,19 @@ table.cats { width: 100%; border-collapse: collapse; font-size: 14px; }
 .seg button:disabled { cursor: progress; opacity: 0.7; }
 .tagerr { color: var(--opp-ink); font-size: 12.5px; }
 
+.changes { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.changes li { display: grid; grid-template-columns: 48px 1fr; gap: 10px; align-items: baseline; font-size: 14px; }
+.changes .team { font-family: var(--display); font-weight: 700; font-size: 16px; }
+.arrow { color: var(--muted); }
+.up { color: var(--you-ink); font-weight: 600; }
+.mention { display: flex; flex-direction: column; gap: 6px; padding-top: 12px; border-top: 1px solid var(--line); }
+.sechead + .mention { border-top: 0; padding-top: 0; }
+.mention .who2 { font-weight: 600; }
+.hit { display: flex; flex-direction: column; gap: 2px; font-size: 14px; }
+.hit .src { font-size: 12px; color: var(--muted); }
+.hit .src b { color: var(--ink-2); font-weight: 600; }
+.hit q { color: var(--ink-2); quotes: none; }
+.hit a { color: var(--you-ink); }
 footer { padding-inline: 16px; padding-block: 0 28px; }
 footer .wrap { color: var(--muted); font-size: 12.5px; display: flex; flex-direction: column; gap: 6px; }
 @media (max-width: 480px) {
@@ -333,6 +346,37 @@ footer .wrap { color: var(--muted); font-size: 12.5px; display: flex; flex-direc
     return `<section class="plain"><div class="sechead"><h2>Moves</h2><span>in the order to make them</span></div>${cards}</section>`;
   }
 
+  function roleText(field, v) {
+    if (v === null || v === undefined || v === "") {
+      return field === "pp_unit" ? "no PP unit" : field === "injury" ? "healthy" : field === "line" ? "out of the lineup" : "none";
+    }
+    const m = /^([fd]|pp|pk)(\d)$/.exec(v);
+    if (m) return m[1] === "f" ? `line ${m[2]}` : m[1] === "d" ? `pair ${m[2]}` : `${m[1].toUpperCase()}${m[2]}`;
+    return String(v);
+  }
+  function news(d) {
+    const ch = d.lineup_changes || [];
+    const men = d.mentions || {};
+    const names = Object.keys(men);
+    if (!ch.length && !names.length) return "";
+    const changes = ch.length ? `<section class="card">
+        <div class="sechead"><h2>Lineup changes</h2><span>Daily Faceoff, last 2 days</span></div>
+        <ul class="changes">${ch.map((c) => `<li><span class="team">${esc(c.team)}</span>
+          <span><strong>${esc(c.player)}</strong>: ${esc(roleText(c.field, c.from))} <span class="arrow">→</span>
+          <span class="${/^pp1$|^f1$|^f2$|^starter$/.test(c.to || "") ? "up" : ""}">${esc(roleText(c.field, c.to))}</span></span></li>`).join("")}</ul>
+      </section>` : "";
+    const snip = (t) => esc(t || "").replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+    const mentions = names.length ? `<section class="card">
+        <div class="sechead"><h2>What they're saying</h2><span>podcast, articles, posts · last 10 days</span></div>
+        ${names.map((n) => `<div class="mention"><span class="who2">${esc(n)}</span>
+          ${men[n].map((h) => `<div class="hit">
+            <span class="src"><b>${esc(h.source)}</b> · ${h.link ? `<a href="${esc(h.link)}" target="_blank" rel="noopener">${esc(h.title)}</a>` : esc(h.title)}${h.timestamp ? ` · at ${esc(h.timestamp)}` : ""}${h.at ? ` · ${esc(dayLabel(h.at.slice(0, 10)))}` : ""}</span>
+            <q>${snip(h.snippet)}</q></div>`).join("")}
+        </div>`).join("")}
+      </section>` : "";
+    return changes + mentions;
+  }
+
   function context(d) {
     const prot = d.protected || [];
     const reg = d.regression_watch || [];
@@ -409,7 +453,7 @@ footer .wrap { color: var(--muted); font-size: 12.5px; display: flex; flex-direc
       ? `${d.league}${d.opponent ? " vs " + d.opponent : ""} · for ${dayLabel(d.generated_for)}${d.created_at ? " · built " + timeLabel(d.created_at) : ""}`
       : "";
     document.getElementById("content").innerHTML = d
-      ? shortVersion(d) + matchup(d) + moveCards(d) + context(d) + nextWeek(d) + tagsSection(d)
+      ? shortVersion(d) + matchup(d) + moveCards(d) + news(d) + context(d) + nextWeek(d) + tagsSection(d)
       : `<section class="card"><p class="note">No digest for ${esc(app.league)} yet. It appears after the morning task runs once.</p></section>`;
     const notes = (d && d.notes) || [];
     document.getElementById("foot").innerHTML =
