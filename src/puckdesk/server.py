@@ -61,6 +61,11 @@ def build(settings: Settings) -> MCPServer:
         return dg
 
     @mcp.tool(annotations=READ)
+    def leagues() -> dict:
+        """Leagues with stored digests or tags, newest digest time first."""
+        return {"leagues": store.league_summaries()}
+
+    @mcp.tool(annotations=READ)
     def latest_digest(league: str) -> dict:
         """The most recent stored digest for a league (by league name)."""
         dg = store.latest_digest(league)

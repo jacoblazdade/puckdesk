@@ -75,3 +75,11 @@ def test_tools_and_digest(client):
     r = rpc(client, "tools/call", {"name": "latest_digest", "arguments": {"league": "L"}}).json()
     content = r["result"].get("structuredContent") or json.loads(r["result"]["content"][0]["text"])
     assert content["league"] == "L"
+
+    r = rpc(client, "tools/call", {"name": "leagues", "arguments": {}}).json()
+    content = r["result"].get("structuredContent") or json.loads(r["result"]["content"][0]["text"])
+    assert content["leagues"][0]["name"] == "L" and content["leagues"][0]["last_digest"]
+
+    r = rpc(client, "tools/call", {"name": "set_tags", "arguments": {"league": "L", "tags": [{"name": "Rhys Tolliver", "tag": "core"}]}}).json()
+    content = r["result"].get("structuredContent") or json.loads(r["result"]["content"][0]["text"])
+    assert content["tags"][0]["tag"] == "core"

@@ -69,8 +69,15 @@ uv run pytest                 # tests (uses an embedded Postgres)
   `api.nhle.com/stats/rest`. Both are public but undocumented.
 - Yahoo Fantasy Sports API: read-only, once access is approved.
 
+## The digest page
+
+`web/` holds the Claude artifact page that shows the digest. It reads the
+latest stored digest live through the puckdesk connector, lets you change
+roster tags, and falls back to sample data when the connector isn't there.
+Rebuild it with `python web/build.py`.
+
 ## Status
 
 Phase 1: stats-based digest. News, podcasts and social posts come later.
-See `docs/claude-digest-task.md` for the scheduled Claude task that produces
-the morning digest.
+Setup steps are in `docs/SETUP.md`; the scheduled Claude task that produces
+the morning digest is in `docs/claude-digest-task.md`.

@@ -1,10 +1,13 @@
 # Morning digest: scheduled task prompt for Claude
 
-Set this up as a scheduled task in Claude once both connectors work:
-**puckdesk** (this server) and a Yahoo connector (Flaim until Yahoo approves
-direct API access). Run it daily at 07:00 Cologne time; Monday's run should be
-earlier (06:00) during the weeks when Europe and the US are on different clock
-changes, because waivers then clear at 08:00.
+Schedule this in Claude once both connectors work: **puckdesk** (this server)
+and a Yahoo connector (Flaim until Yahoo approves direct API access). Run it
+daily at 06:50 Cologne time. From 25 Oct to 1 Nov 2026 and from 14 to 28 Mar
+2027, Europe and the US are on different clock-change dates and waivers clear
+at 08:00 instead of 09:00; 06:50 still leaves an hour.
+
+The Puckdesk Digest page reads the stored digest by itself, so the task only
+has to compute it and send a short summary.
 
 ---
 
@@ -19,9 +22,9 @@ For each of my two Yahoo fantasy hockey leagues:
 2. Call puckdesk `league_state_guide` once, then build a LeagueState for the
    league exactly in that shape. Use the league names "League 1" and
    "League 2". Leave tags out; the server has them.
-3. Call puckdesk `morning_digest` with it.
-4. Update my digest artifact with the result for both leagues.
-5. Finish with at most three lines per league: the moves to make before
+3. Call puckdesk `morning_digest` with it. The result is stored and shows up
+   on the Puckdesk Digest page.
+4. Finish with at most three lines per league: the moves to make before
    waivers and the swing categories. If a move says `confirm_goalie_start`,
    say it needs the 17:00 starter check.
 

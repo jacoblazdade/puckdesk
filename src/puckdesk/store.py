@@ -142,6 +142,16 @@ class Store:
             return None
         return {"id": row["id"], "created_at": row["created_at"].isoformat(), **row["payload"]}
 
+    def league_summaries(self) -> list[dict]:
+        with self.conn() as c:
+            rows = c.execute(
+                """select l.league, max(d.created_at) last_digest from
+                   (select distinct league from digests union select distinct league from tags) l
+                   left join digests d on d.league = l.league group by l.league
+                   order by l.league"""
+            ).fetchall()
+        return [{"name": r["league"], "last_digest": r["last_digest"].isoformat() if r["last_digest"] else None} for r in rows]
+
     def leagues(self) -> list[str]:
         with self.conn() as c:
             rows = c.execute("select distinct league from digests union select distinct league from tags").fetchall()

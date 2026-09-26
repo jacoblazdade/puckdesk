@@ -1,0 +1,551 @@
+<title>Puckdesk Digest</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+:root {
+  --ground: #EEF1F4;
+  --surface: #FFFFFF;
+  --surface-2: #F5F7FA;
+  --ink: #0E1A2B;
+  --ink-2: #3E4A5C;
+  --muted: #5B6677;
+  --line: #D9DFE6;
+  --head: #0E1A2B;
+  --head-ink: #FFFFFF;
+  --head-muted: #B9C3D1;
+  --head-chip: #1B2A40;
+  --you: #1F5FBF;
+  --you-ink: #1A4FA0;
+  --you-tint: #E6EEFA;
+  --opp: #E8915C;
+  --opp-ink: #9A370C;
+  --opp-tint: #FBEDE5;
+  --swing-tint: #E4E9F0;
+  --focus: #1F5FBF;
+  --display: "Barlow Condensed", "Arial Narrow", "Roboto Condensed", sans-serif;
+  --body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --ground: #0A111B; --surface: #121C29; --surface-2: #172333; --ink: #E8EDF3; --ink-2: #B8C2CF;
+    --muted: #8D99A9; --line: #243244; --head: #060C14; --head-ink: #F2F5F9; --head-muted: #9AA7B8;
+    --head-chip: #16243A; --you: #6FA0F0; --you-ink: #9DBEF5; --you-tint: #17294A; --opp: #EE9A68;
+    --opp-ink: #F4B08A; --opp-tint: #3A2217; --swing-tint: #1E2A3A; --focus: #9DBEF5;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --ground: #0A111B; --surface: #121C29; --surface-2: #172333; --ink: #E8EDF3; --ink-2: #B8C2CF;
+  --muted: #8D99A9; --line: #243244; --head: #060C14; --head-ink: #F2F5F9; --head-muted: #9AA7B8;
+  --head-chip: #16243A; --you: #6FA0F0; --you-ink: #9DBEF5; --you-tint: #17294A; --opp: #EE9A68;
+  --opp-ink: #F4B08A; --opp-tint: #3A2217; --swing-tint: #1E2A3A; --focus: #9DBEF5;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--ground); color: var(--ink);
+  font: 15px/1.5 var(--body); font-variant-numeric: tabular-nums;
+}
+button { font: inherit; color: inherit; cursor: pointer; }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+h1, h2, h3 { font-family: var(--display); text-wrap: balance; margin: 0; }
+h2 { font-size: 24px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.01em; line-height: 1.1; }
+
+.top { background: var(--head); color: var(--head-ink); padding-block: 22px 18px; padding-inline: 16px; }
+.wrap { max-width: 760px; margin-inline: auto; }
+.top .wrap { display: flex; flex-direction: column; gap: 12px; }
+.brandrow { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.eyebrow { font-size: 12px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--head-muted); }
+.top h1 { font-size: 44px; font-weight: 700; line-height: 1; text-transform: uppercase; }
+.sub { margin: 0; color: var(--head-muted); font-size: 14px; }
+.chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; letter-spacing: 0.04em; }
+.chip.status { border: 1px solid #3A4A61; color: var(--head-muted); }
+.chip.status.live { border-color: transparent; background: var(--head-chip); color: #9FE0B8; }
+.chip.status.stale { border-color: transparent; background: var(--head-chip); color: #F4B183; }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.tabs { display: flex; gap: 8px; flex-wrap: wrap; }
+.tab { min-height: 44px; padding: 0 18px; border-radius: 999px; border: 1px solid #3A4A61; background: transparent; color: var(--head-ink); font-weight: 500; }
+.tab[aria-pressed="true"] { background: var(--head-ink); color: var(--head); border-color: transparent; font-weight: 600; }
+
+.banner { padding-inline: 16px; }
+.banner .wrap { margin-top: 16px; padding: 12px 14px; border-radius: 12px; background: var(--opp-tint); color: var(--ink); font-size: 14px; }
+.banner strong { color: var(--opp-ink); }
+
+main { padding-inline: 16px; padding-block: 16px 32px; }
+main .wrap { display: flex; flex-direction: column; gap: 20px; }
+.card { background: var(--surface); border-radius: 16px; padding: 18px; display: flex; flex-direction: column; gap: 14px; }
+.sechead { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.sechead span { color: var(--muted); font-size: 14px; }
+.plain { display: flex; flex-direction: column; gap: 12px; }
+.plain > .sechead { padding-inline: 4px; }
+.note { margin: 0; color: var(--ink-2); font-size: 14px; }
+.small { font-size: 12.5px; color: var(--muted); }
+
+.steps { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 10px; counter-reset: step; }
+.steps li { display: grid; grid-template-columns: 26px 1fr; gap: 10px; align-items: start; counter-increment: step; }
+.steps li::before { content: counter(step); width: 24px; height: 24px; border-radius: 50%; background: var(--ink); color: var(--surface); display: grid; place-items: center; font-size: 13px; font-weight: 600; margin-top: 1px; }
+.gain { color: var(--you-ink); font-weight: 600; white-space: nowrap; }
+
+.kpis { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.kpi { background: var(--surface-2); border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 2px; }
+.kpi b { font-family: var(--display); font-size: 30px; line-height: 1; font-weight: 700; }
+.kpi span { font-size: 12.5px; color: var(--ink-2); }
+@media (max-width: 460px) { .kpi b { font-size: 24px; } }
+
+.table-wrap { overflow-x: auto; }
+table.cats { width: 100%; border-collapse: collapse; font-size: 14px; }
+.cats th { text-align: left; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); padding: 0 8px 6px; }
+.cats td { padding: 8px; border-top: 1px solid var(--line); vertical-align: middle; }
+.cats tr.swing td { background: var(--swing-tint); }
+.cats td.key { font-family: var(--display); font-weight: 700; font-size: 18px; width: 52px; }
+.cats td.now { color: var(--ink-2); white-space: nowrap; }
+.cats td.proj { font-weight: 600; white-space: nowrap; }
+.bar { position: relative; height: 8px; border-radius: 999px; background: var(--line); overflow: hidden; min-width: 80px; }
+.bar i { position: absolute; inset: 0 auto 0 0; background: var(--you); border-radius: 999px; }
+.bar b { position: absolute; left: 50%; top: 0; width: 2px; height: 8px; background: var(--muted); }
+.wincell { display: grid; grid-template-columns: 1fr 40px; gap: 8px; align-items: center; }
+.wincell span { text-align: right; font-weight: 600; }
+.pill { display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 11px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; white-space: nowrap; }
+.pill.win { background: var(--you-tint); color: var(--you-ink); }
+.pill.loss { background: var(--opp-tint); color: var(--opp-ink); }
+.pill.swing { background: var(--ink); color: var(--surface); }
+.pill.tie { background: var(--surface-2); color: var(--ink-2); border: 1px solid var(--line); }
+
+.move { background: var(--surface); border-radius: 16px; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+.move.pending { border: 1px dashed var(--muted); }
+.move header { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.move header .eyebrow { color: var(--muted); }
+.who { display: grid; grid-template-columns: 56px 1fr; gap: 12px; align-items: center; }
+.tagbox { text-align: center; font-size: 11px; font-weight: 700; letter-spacing: 0.08em; padding: 4px 0; border-radius: 6px; }
+.tagbox.add { background: var(--you-tint); color: var(--you-ink); }
+.tagbox.drop { background: var(--opp-tint); color: var(--opp-ink); }
+.who .name { font-weight: 600; font-size: 16px; }
+.who .meta { color: var(--muted); font-size: 13px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.delta { padding: 4px 10px; border-radius: 999px; font-size: 13px; font-weight: 600; }
+.delta.up { background: var(--you-tint); color: var(--you-ink); }
+.delta.down { background: var(--opp-tint); color: var(--opp-ink); }
+.reasons { margin: 0; padding-left: 18px; color: var(--ink-2); font-size: 14px; display: flex; flex-direction: column; gap: 2px; }
+
+.two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+@media (max-width: 640px) { .two { grid-template-columns: minmax(0, 1fr); } }
+.plist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.plist li { display: flex; flex-direction: column; gap: 4px; }
+.plist .name { font-weight: 600; }
+.stats3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.stat { background: var(--surface-2); border-radius: 10px; padding: 8px 10px; }
+.stat b { font-family: var(--display); font-size: 22px; display: block; line-height: 1.1; }
+.stat span { font-size: 12px; color: var(--ink-2); }
+.empty { color: var(--muted); font-size: 14px; margin: 0; }
+
+.sched { width: 100%; border-collapse: collapse; font-size: 14px; }
+.sched th { font-size: 11px; font-weight: 600; color: var(--muted); padding: 0 4px 6px; text-align: center; }
+.sched th.light { color: var(--you-ink); }
+.sched td { padding: 6px 4px; text-align: center; border-top: 1px solid var(--line); }
+.sched td.team { text-align: left; font-weight: 600; }
+.sched td.gp { font-weight: 700; text-align: right; }
+.gdot { display: inline-block; width: 12px; height: 12px; border-radius: 50%; }
+.gdot.light { background: var(--you); }
+.gdot.busy { background: var(--muted); opacity: 0.6; }
+.gdot.none { width: 4px; height: 4px; background: var(--line); }
+
+.tags { list-style: none; margin: 0; padding: 0; }
+.tags li { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 0; border-top: 1px solid var(--line); }
+.tags li:first-child { border-top: 0; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; flex-shrink: 0; }
+.seg button { min-width: 58px; min-height: 40px; border: 0; background: var(--surface); color: var(--ink-2); font-size: 13px; font-weight: 500; }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button[aria-pressed="true"][data-tag="core"] { background: var(--ink); color: var(--surface); font-weight: 600; }
+.seg button[aria-pressed="true"][data-tag="hold"] { background: var(--you); color: #fff; font-weight: 600; }
+.seg button[aria-pressed="true"][data-tag="stream"] { background: var(--opp-ink); color: #fff; font-weight: 600; }
+.seg button:disabled { cursor: progress; opacity: 0.7; }
+.tagerr { color: var(--opp-ink); font-size: 12.5px; }
+
+footer { padding-inline: 16px; padding-block: 0 28px; }
+footer .wrap { color: var(--muted); font-size: 12.5px; display: flex; flex-direction: column; gap: 6px; }
+@media (max-width: 480px) {
+  .cats th:nth-child(5), .cats td:nth-child(5) { display: none; }
+  .cats td, .cats th { padding-inline: 5px; }
+  .cats td.key { width: 40px; font-size: 16px; }
+  .sched th, .sched td { padding-inline: 2px; font-size: 12.5px; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<header class="top">
+  <div class="wrap">
+    <div class="brandrow">
+      <span class="eyebrow">puckdesk</span>
+      <span id="status" class="chip status"><span class="dot"></span><span id="status-text">Sample data</span></span>
+    </div>
+    <h1>Morning digest</h1>
+    <p id="subline" class="sub"></p>
+    <nav id="tabs" class="tabs" aria-label="League"></nav>
+  </div>
+</header>
+<div id="banner" class="banner" hidden><div class="wrap" id="banner-text"></div></div>
+<main><div class="wrap" id="content"></div></main>
+<footer><div class="wrap" id="foot"></div></footer>
+
+<script type="application/json" id="sample-data">{"league": "Sample league", "opponent": "Puck Dynasty", "generated_for": "2026-10-22", "matchup": {"expected_category_wins": 5.74, "categories_total": 10, "categories": [{"key": "G", "now": [7.0, 5.0], "projected": [13.4, 10.3], "p_win": 0.779, "p_tie": 0.075, "p_loss": 0.146, "status": "likely win"}, {"key": "A", "now": [12.0, 9.0], "projected": [21.7, 18.6], "p_win": 0.733, "p_tie": 0.069, "p_loss": 0.198, "status": "likely win"}, {"key": "SOG", "now": [68.0, 61.0], "projected": [136.2, 128.2], "p_win": 0.721, "p_tie": 0.028, "p_loss": 0.25, "status": "likely win"}, {"key": "PPP", "now": [4.0, 4.0], "projected": [7.8, 7.3], "p_win": 0.49, "p_tie": 0.15, "p_loss": 0.36, "status": "swing"}, {"key": "BLK", "now": [22.0, 14.0], "projected": [49.6, 50.0], "p_win": 0.466, "p_tie": 0.044, "p_loss": 0.489, "status": "swing"}, {"key": "HIT", "now": [25.0, 30.0], "projected": [61.2, 100.7], "p_win": 0.001, "p_tie": 0.0, "p_loss": 0.999, "status": "likely loss"}, {"key": "W", "now": [2.0, 2.0], "projected": [4.0, 4.3], "p_win": 0.314, "p_tie": 0.241, "p_loss": 0.445, "status": "swing"}, {"key": "SV%", "now": [0.918, 0.897], "projected": [0.912, 0.9], "p_win": 0.716, "p_tie": 0.017, "p_loss": 0.267, "status": "likely win"}, {"key": "GAA", "now": [2.41, 3.02], "projected": [2.52, 2.85], "p_win": 0.716, "p_tie": 0.006, "p_loss": 0.278, "status": "likely win"}, {"key": "SO", "now": [0.0, 0.0], "projected": [0.2, 0.3], "p_win": 0.173, "p_tie": 0.627, "p_loss": 0.2, "status": "likely tie"}], "games_left": {"me": 31.0, "opp": 34.0}, "goalie_starts_left": {"me": 4.0, "opp": 4.7}, "window": {"from": "2026-10-22", "to": "2026-10-25"}}, "moves": {"adds": {"max": 4, "used": 1, "left": 3}, "moves": [{"add": {"name": "Luka Petrović", "team": "MIN", "positions": ["D"], "games_left": 3, "next_week_games": 3, "availability": "FA", "waiver_clears": null, "percent_rostered": 6.0, "start_share": null}, "drop": {"name": "Ryan Lachance", "team": "STL", "tag": "stream", "games_left": 1, "next_week_games": 2}, "gain_expected_categories": 0.578, "category_changes": {"G": {"before": 0.82, "after": 0.84}, "A": {"before": 0.77, "after": 0.84}, "SOG": {"before": 0.74, "after": 0.88}, "PPP": {"before": 0.57, "after": 0.68}, "BLK": {"before": 0.49, "after": 0.73}, "W": {"before": 0.43, "after": 0.4}}, "uses_last_add": false, "confirm_goalie_start": false, "reasons": ["3 games left for Luka Petrović vs 1 for Ryan Lachance", "Raises win chance in BLK 49% to 73%, SOG 74% to 88%, PPP 57% to 68%", "Costs a little in W 43% to 40%", "Next week: 3 games vs 2"]}, {"add": {"name": "Rhys Tolliver", "team": "SEA", "positions": ["LW", "RW"], "games_left": 3, "next_week_games": 4, "availability": "FA", "waiver_clears": null, "percent_rostered": 11.0, "start_share": null}, "drop": {"name": "Brody Kettering", "team": "CHI", "tag": "stream", "games_left": 1, "next_week_games": 2}, "gain_expected_categories": 0.134, "category_changes": {"SOG": {"before": 0.88, "after": 0.91}, "BLK": {"before": 0.73, "after": 0.78}, "HIT": {"before": 0.0, "after": 0.03}}, "uses_last_add": false, "confirm_goalie_start": false, "reasons": ["3 games left for Rhys Tolliver vs 1 for Brody Kettering", "Raises win chance in BLK 73% to 78%, SOG 88% to 91%, HIT 0% to 3%", "Next week: 4 games vs 2"]}], "skipped": []}, "protected": [{"name": "Aleksi Korhonen", "team": "DAL", "points_per_game": 0.29, "points_per_game_last_season": 0.85, "shots_per_game": 3.29, "shots_per_game_last_season": 2.87, "shooting_pct": 0.043, "shooting_pct_last_season": 0.136, "expected_goals_at_normal_finishing": 3.1, "goals": 1, "verdict": "hold: volume is intact, finishing should return"}], "regression_watch": [{"name": "Cole Winslow", "team": "CAR", "tag": "hold", "goals": 5, "shots": 11, "shooting_pct": 0.455, "normal_shooting_pct": 0.093, "verdict": "scoring well above his normal rate; likely to cool off"}], "next_week": {"from": "2026-10-26", "to": "2026-11-01", "games_per_date": {"2026-10-26": 2, "2026-10-27": 2, "2026-10-28": 2, "2026-10-29": 1, "2026-10-30": 2, "2026-10-31": 2, "2026-11-01": 1}, "light_nights": ["2026-10-26", "2026-10-27", "2026-10-28", "2026-10-29", "2026-10-30", "2026-10-31", "2026-11-01"], "teams": [{"team": "MTL", "games": 4, "light_night_games": 4, "dates": ["2026-10-26", "2026-10-28", "2026-10-30", "2026-11-01"]}, {"team": "CAR", "games": 4, "light_night_games": 4, "dates": ["2026-10-26", "2026-10-28", "2026-10-30", "2026-11-01"]}, {"team": "SEA", "games": 4, "light_night_games": 4, "dates": ["2026-10-26", "2026-10-27", "2026-10-30", "2026-11-01"]}, {"team": "NJD", "games": 3, "light_night_games": 3, "dates": ["2026-10-27", "2026-10-29", "2026-10-31"]}, {"team": "MIN", "games": 3, "light_night_games": 3, "dates": ["2026-10-26", "2026-10-28", "2026-10-30"]}, {"team": "CHI", "games": 2, "light_night_games": 2, "dates": ["2026-10-28", "2026-10-31"]}, {"team": "DAL", "games": 2, "light_night_games": 2, "dates": ["2026-10-29", "2026-10-31"]}, {"team": "STL", "games": 2, "light_night_games": 2, "dates": ["2026-10-27", "2026-10-31"]}, {"team": "LAK", "games": 2, "light_night_games": 2, "dates": ["2026-10-27", "2026-10-29"]}]}, "tags": {"Mathis Arsenault": "core", "Felix Arnaud": "core", "Theo Lindqvist": "core", "Nico Brandt": "hold", "Owen Castellano": "core", "Emil Nygård": "core", "Colby Marsh": "core", "Jari Kettunen": "hold", "Henrik Sandvik": "core", "Mason Tully": "core", "Adam Vesely": "core", "Tomas Blažek": "stream", "Brody Kettering": "stream", "Aleksi Korhonen": "core", "Cole Winslow": "hold", "Pavel Grishin": "core", "Jonas Lindahl": "hold", "Ryan Lachance": "stream"}, "notes": [], "created_at": "2026-10-22T06:58:00+02:00"}</script>
+<script>
+(() => {
+  const SERVER = "puckdesk";
+  const SAMPLE = JSON.parse(document.getElementById("sample-data").textContent);
+  const app = {
+    mode: "sample",          // sample | live
+    leagues: [SAMPLE.league],
+    league: SAMPLE.league,
+    digest: SAMPLE,
+    mcp: null,
+    watchedLeague: null,
+    unwatchDigest: null,
+    tagBusy: {},
+    tagError: {},
+  };
+
+  // ---------- helpers ----------
+  const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const pct = (p) => `${Math.round((p ?? 0) * 100)}%`;
+  const num = (v, key) => {
+    if (v === null || v === undefined || Number.isNaN(v)) return "–";
+    if (key === "SV%") return Number(v).toFixed(3).replace(/^0/, "");
+    if (key === "GAA") return Number(v).toFixed(2);
+    return Number.isInteger(v) ? String(v) : Number(v).toFixed(1);
+  };
+  const localDate = (iso) => { const [y, m, d] = iso.split("-").map(Number); return new Date(y, m - 1, d); };
+  const dayName = (iso) => localDate(iso).toLocaleDateString("en-GB", { weekday: "short" });
+  const dayLabel = (iso) => localDate(iso).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
+  const timeLabel = (iso) => {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return "";
+    return d.toLocaleString("en-GB", { weekday: "short", hour: "2-digit", minute: "2-digit" });
+  };
+  const store = {
+    get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+    set(k, v) { try { localStorage.setItem(k, v); } catch { /* not available */ } },
+  };
+
+  // ---------- header ----------
+  function setStatus(kind, text) {
+    const el = document.getElementById("status");
+    el.className = `chip status ${kind}`;
+    document.getElementById("status-text").textContent = text;
+  }
+  function banner(html) {
+    const b = document.getElementById("banner");
+    if (!html) { b.hidden = true; return; }
+    document.getElementById("banner-text").innerHTML = html;
+    b.hidden = false;
+  }
+  function renderTabs() {
+    const nav = document.getElementById("tabs");
+    nav.innerHTML = app.leagues.map((l) =>
+      `<button class="tab" type="button" data-league="${esc(l)}" aria-pressed="${l === app.league}">${esc(l)}</button>`).join("");
+  }
+  document.getElementById("tabs").addEventListener("click", (e) => {
+    const btn = e.target.closest("button[data-league]");
+    if (!btn || btn.dataset.league === app.league) return;
+    app.league = btn.dataset.league;
+    store.set("puckdesk.league", app.league);
+    renderTabs();
+    if (app.mode === "live") watchDigest(app.league);
+  });
+
+  // ---------- sections ----------
+  function statusPill(status) {
+    const map = { "likely win": "win", "likely loss": "loss", "swing": "swing", "likely tie": "tie" };
+    return `<span class="pill ${map[status] || "tie"}">${esc(status)}</span>`;
+  }
+
+  function shortVersion(d) {
+    const mv = d.moves || {};
+    const moves = mv.moves || [];
+    const adds = mv.adds || {};
+    const budget = adds.max != null
+      ? `Adds: ${adds.used} of ${adds.max} used. ${moves.length ? `These moves use ${moves.length}.` : ""}`
+      : "";
+    const items = moves.length
+      ? `<ol class="steps">${moves.map((m) =>
+          `<li><span>Add <strong>${esc(m.add.name)}</strong>, drop ${esc(m.drop.name)}.
+             <span class="gain">+${m.gain_expected_categories.toFixed(2)} categories</span>
+             ${m.confirm_goalie_start ? `<span class="small"> Confirm he starts at the 17:00 check.</span>` : ""}</span></li>`).join("")}</ol>`
+      : `<p class="note">${esc((mv.skipped || ["No move beats keeping your adds this morning."])[0])}</p>`;
+    return `<section class="card">
+      <div class="sechead"><h2>Before waivers</h2><span>${esc(d.opponent ? "vs " + d.opponent : "")}</span></div>
+      ${items}
+      ${budget ? `<p class="note">${esc(budget)}</p>` : ""}
+    </section>`;
+  }
+
+  function matchup(d) {
+    const m = d.matchup;
+    if (!m) return "";
+    const rows = m.categories.map((c) => {
+      const e = c.p_win + 0.5 * c.p_tie;
+      const now = c.now && c.now[0] !== null && c.now[0] !== undefined ? `${num(c.now[0], c.key)}–${num(c.now[1], c.key)}` : "–";
+      return `<tr class="${c.status === "swing" ? "swing" : ""}">
+        <td class="key">${esc(c.key)}</td>
+        <td class="now">${now}</td>
+        <td class="proj">${num(c.projected[0], c.key)}–${num(c.projected[1], c.key)}</td>
+        <td><div class="wincell"><div class="bar" role="img" aria-label="${esc(c.key)} win chance ${pct(e)}"><i style="width:${Math.round(e * 100)}%"></i><b></b></div><span>${pct(e)}</span></div></td>
+        <td>${statusPill(c.status)}</td>
+      </tr>`;
+    }).join("");
+    return `<section class="card">
+      <div class="sechead"><h2>Matchup</h2><span>${esc(dayLabel(m.window.from))} to ${esc(dayLabel(m.window.to))}</span></div>
+      <div class="kpis">
+        <div class="kpi"><b>${m.expected_category_wins.toFixed(1)}</b><span>of ${m.categories_total} categories expected</span></div>
+        <div class="kpi"><b>${num(m.games_left.me)}–${num(m.games_left.opp)}</b><span>skater games left, you vs them</span></div>
+        <div class="kpi"><b>${num(m.goalie_starts_left.me)}–${num(m.goalie_starts_left.opp)}</b><span>goalie starts left</span></div>
+      </div>
+      <div class="table-wrap"><table class="cats">
+        <thead><tr><th>Cat</th><th>Now</th><th>Projected</th><th>Your win chance</th><th>Read</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>
+      <p class="small">Win chance counts a tie as half. Shaded rows are swing categories, where one move can flip the result.</p>
+    </section>`;
+  }
+
+  function moveCards(d) {
+    const moves = (d.moves && d.moves.moves) || [];
+    if (!moves.length) return "";
+    const cards = moves.map((m, i) => {
+      const deltas = Object.entries(m.category_changes || {})
+        .map(([k, v]) => ({ k, d: v.after - v.before, v }))
+        .filter((x) => Math.abs(x.d) >= 0.02)
+        .sort((a, b) => b.d - a.d)
+        .map((x) => `<span class="delta ${x.d > 0 ? "up" : "down"}">${esc(x.k)} ${pct(x.v.before)} → ${pct(x.v.after)}</span>`).join("");
+      const a = m.add, dr = m.drop;
+      const avail = a.availability === "W" ? `on waivers${a.waiver_clears ? `, clears ${esc(dayLabel(a.waiver_clears))}` : ""}` : "free agent";
+      return `<article class="move ${m.confirm_goalie_start ? "pending" : ""}">
+        <header><span class="eyebrow">Move ${i + 1}${m.uses_last_add ? " · last add" : ""}</span>
+          <span class="gain">+${m.gain_expected_categories.toFixed(2)} expected categories</span></header>
+        <div class="who"><span class="tagbox add">ADD</span><div><div class="name">${esc(a.name)}</div>
+          <div class="meta">${esc((a.positions || []).join("/"))} · ${esc(a.team)} · ${a.games_left} games left · ${avail}${a.percent_rostered != null ? ` · ${Math.round(a.percent_rostered)}% rostered` : ""}</div></div></div>
+        <div class="who"><span class="tagbox drop">DROP</span><div><div class="name">${esc(dr.name)}</div>
+          <div class="meta">${esc(dr.team)} · ${dr.games_left} games left · tagged ${esc(dr.tag)}</div></div></div>
+        ${deltas ? `<div class="chips">${deltas}</div>` : ""}
+        <ul class="reasons">${(m.reasons || []).map((r) => `<li>${esc(r)}</li>`).join("")}</ul>
+        ${m.confirm_goalie_start ? `<p class="note">Goalie stream: make it only if he's confirmed as the starter.</p>` : ""}
+      </article>`;
+    }).join("");
+    return `<section class="plain"><div class="sechead"><h2>Moves</h2><span>in the order to make them</span></div>${cards}</section>`;
+  }
+
+  function context(d) {
+    const prot = d.protected || [];
+    const reg = d.regression_watch || [];
+    const protHtml = prot.length ? `<ul class="plist">${prot.map((p) => `<li>
+        <span class="name">${esc(p.name)} <span class="small">${esc(p.team)}</span></span>
+        <div class="stats3">
+          <div class="stat"><b>${p.shooting_pct != null ? (p.shooting_pct * 100).toFixed(1) + "%" : "–"}</b><span>shooting, ${p.shooting_pct_last_season != null ? (p.shooting_pct_last_season * 100).toFixed(1) + "% last season" : "no history"}</span></div>
+          <div class="stat"><b>${p.shots_per_game.toFixed(1)}</b><span>shots a game, ${p.shots_per_game_last_season.toFixed(1)} last season</span></div>
+          <div class="stat"><b>${p.goals}</b><span>goals; ${p.expected_goals_at_normal_finishing ?? "–"} at his usual rate</span></div>
+        </div>
+        <span class="note">Hold: the volume is there, the finishing will come back.</span></li>`).join("")}</ul>`
+      : `<p class="empty">No Core player is running cold right now.</p>`;
+    const regHtml = reg.length ? `<ul class="plist">${reg.map((p) => `<li>
+        <span class="name">${esc(p.name)} <span class="small">${esc(p.team)} · ${esc(p.tag)}</span></span>
+        <span class="note">${p.goals} goals on ${p.shots} shots (${(p.shooting_pct * 100).toFixed(0)}%), against a normal ${(p.normal_shooting_pct * 100).toFixed(0)}%. Likely to cool off; a sell-high window if you trade.</span></li>`).join("")}</ul>`
+      : `<p class="empty">Nobody on your roster is shooting far above normal.</p>`;
+    return `<div class="two">
+      <section class="card"><div class="sechead"><h2>Held, not dropped</h2></div>${protHtml}</section>
+      <section class="card"><div class="sechead"><h2>Due to cool off</h2></div>${regHtml}</section>
+    </div>`;
+  }
+
+  function nextWeek(d) {
+    const nw = d.next_week;
+    if (!nw || !nw.teams) return "";
+    const days = Object.keys(nw.games_per_date || {}).sort();
+    const light = new Set(nw.light_nights || []);
+    const head = days.map((iso) => `<th class="${light.has(iso) ? "light" : ""}">${esc(dayName(iso))}<br>${nw.games_per_date[iso]}</th>`).join("");
+    const rows = nw.teams.slice(0, 10).map((t) => {
+      const played = new Set(t.dates);
+      const cells = days.map((iso) => {
+        const cls = played.has(iso) ? (light.has(iso) ? "light" : "busy") : "none";
+        const label = played.has(iso) ? (light.has(iso) ? "game on a light night" : "game on a busy night") : "no game";
+        return `<td><span class="gdot ${cls}" role="img" aria-label="${dayName(iso)}: ${label}"></span></td>`;
+      }).join("");
+      return `<tr><td class="team">${esc(t.team)}</td>${cells}<td class="gp">${t.games}</td></tr>`;
+    }).join("");
+    return `<section class="card">
+      <div class="sechead"><h2>Next week</h2><span>${esc(dayLabel(nw.from))} to ${esc(dayLabel(nw.to))}</span></div>
+      <p class="note">Light nights have 8 games or fewer, so streamers fill open lineup slots. Top teams by games, then light-night games.</p>
+      <div class="table-wrap"><table class="sched">
+        <thead><tr><th style="text-align:left">Team</th>${head}<th style="text-align:right">GP</th></tr></thead>
+        <tbody>${rows}</tbody></table></div>
+    </section>`;
+  }
+
+  function tagsSection(d) {
+    const tags = d.tags || {};
+    const names = Object.keys(tags);
+    if (!names.length) return "";
+    const order = { core: 0, hold: 1, stream: 2 };
+    names.sort((a, b) => (order[tags[a]] - order[tags[b]]) || a.localeCompare(b));
+    const rows = names.map((n) => {
+      const busy = !!app.tagBusy[n];
+      const seg = ["core", "hold", "stream"].map((t) =>
+        `<button type="button" data-player="${esc(n)}" data-tag="${t}" aria-pressed="${tags[n] === t}" ${busy ? "disabled" : ""}
+          aria-label="Tag ${esc(n)} as ${t}">${t[0].toUpperCase() + t.slice(1)}</button>`).join("");
+      const err = app.tagError[n] ? `<div class="tagerr">${esc(app.tagError[n])}</div>` : "";
+      return `<li><div><div>${esc(n)}</div>${err}</div><div class="seg" role="group" aria-label="Tag for ${esc(n)}">${seg}</div></li>`;
+    }).join("");
+    const how = app.mode === "live"
+      ? "Changes save to your server right away and apply from the next digest run."
+      : "Sample data: changes here aren't saved.";
+    return `<section class="card">
+      <div class="sechead"><h2>Roster tags</h2><span>Core never dropped · Hold for a clear upgrade · Stream freely</span></div>
+      <ul class="tags">${rows}</ul>
+      <p class="small">${esc(how)}</p>
+    </section>`;
+  }
+
+  function render() {
+    const d = app.digest;
+    document.getElementById("subline").textContent = d
+      ? `${d.league}${d.opponent ? " vs " + d.opponent : ""} · for ${dayLabel(d.generated_for)}${d.created_at ? " · built " + timeLabel(d.created_at) : ""}`
+      : "";
+    document.getElementById("content").innerHTML = d
+      ? shortVersion(d) + matchup(d) + moveCards(d) + context(d) + nextWeek(d) + tagsSection(d)
+      : `<section class="card"><p class="note">No digest for ${esc(app.league)} yet. It appears after the morning task runs once.</p></section>`;
+    const notes = (d && d.notes) || [];
+    document.getElementById("foot").innerHTML =
+      (notes.length ? `<div>Players matched by name only: ${notes.map(esc).join("; ")}</div>` : "") +
+      `<div>Projections from NHL game data: this season, the last 14 days and last season, with 10,000 simulated finishes to the week.</div>`;
+  }
+
+  // ---------- tags ----------
+  document.getElementById("content").addEventListener("click", async (e) => {
+    const btn = e.target.closest(".seg button[data-player]");
+    if (!btn) return;
+    const name = btn.dataset.player, tag = btn.dataset.tag;
+    const d = app.digest;
+    const before = d.tags[name];
+    if (before === tag) return;
+    d.tags[name] = tag;
+    app.tagError[name] = null;
+    if (app.mode !== "live" || !app.mcp) { render(); return; }
+    app.tagBusy[name] = true;
+    render();
+    try {
+      await app.mcp.callTool(SERVER, "set_tags", { league: app.league, tags: [{ name, tag }] });
+    } catch (err) {
+      d.tags[name] = before;
+      app.tagError[name] = tagErrorText(err);
+    } finally {
+      app.tagBusy[name] = false;
+      render();
+    }
+  });
+  function tagErrorText(err) {
+    const code = err && err.code;
+    if (code === "server_unavailable" || code === "upstream_error") return "Couldn't reach the Mac mini. Tap again to retry.";
+    if (code === "needs_reauth") return "Reconnect puckdesk in Settings → Connectors, then try again.";
+    if (code === "not_in_manifest") return "puckdesk isn't allowed on this page, so tags can't be saved.";
+    if (code === "tool_error") return `The server refused the change: ${err.message}`;
+    return `Not saved (${code || "error"}).`;
+  }
+
+  // ---------- live data ----------
+  function showSample(reasonHtml) {
+    app.mode = "sample";
+    app.leagues = [SAMPLE.league];
+    app.league = SAMPLE.league;
+    app.digest = SAMPLE;
+    setStatus("", "Sample data");
+    banner(reasonHtml);
+    renderTabs();
+    render();
+  }
+
+  function handleError(err, section) {
+    const code = err && err.code;
+    const lastGood = app.mode === "live" && app.digest && app.digest.created_at;
+    switch (code) {
+      case "server_not_connected":
+      case "selection_required":
+      case "server_not_found":
+        return showSample(`<strong>puckdesk isn't connected.</strong> Add it in claude.ai Settings → Connectors with the address from your Mac mini's setup, then reload this page. Meanwhile you're looking at sample data.`);
+      case "needs_reauth":
+        return showSample(`<strong>puckdesk needs reconnecting.</strong> Reconnect it in claude.ai Settings → Connectors.`);
+      case "not_in_manifest":
+        return showSample(`<strong>puckdesk is turned off for this page.</strong> Allow it from the page's connector settings to see your leagues.`);
+      case "blocked_by_policy":
+      case "approval_required":
+        return showSample(`<strong>This connector is blocked here</strong> by your account's settings.`);
+      case "not_granted":
+      case "capability_disabled":
+      case "capability_removed":
+        return showSample(`This view can't use connectors, so it shows sample data. Open the page in Claude to see your leagues.`);
+      case "server_unavailable":
+      case "upstream_error":
+      case "rate_limited":
+        setStatus("stale", lastGood ? `Offline · ${timeLabel(app.digest.created_at)}` : "Offline");
+        return banner(`<strong>Can't reach the Mac mini right now.</strong> ${lastGood ? "Showing the last digest that loaded." : "Check that it's awake and Tailscale Funnel is on."} The page retries on its own.`);
+      case "tool_error":
+        return banner(`<strong>The server reported an error</strong> (${esc(section)}): ${esc(err.message)}`);
+      default:
+        return banner(`<strong>Something went wrong loading ${esc(section)}</strong> (${esc(code || "unknown")}). Reload the page to try again.`);
+    }
+  }
+
+  function watchDigest(league) {
+    if (!app.mcp) return;
+    if (app.unwatchDigest) { app.unwatchDigest(); app.unwatchDigest = null; }
+    app.watchedLeague = league;
+    app.unwatchDigest = app.mcp.watchTool(SERVER, "latest_digest", { league }, (ev) => {
+      if (app.watchedLeague !== league) return;
+      if (ev.type === "error") return handleError(ev.error, "the digest");
+      const p = ev.result && ev.result.payload;
+      if (!p || typeof p !== "object") return handleError({ code: "tool_error", message: "empty answer" }, "the digest");
+      app.mode = "live";
+      if (p.error) {
+        app.digest = null;
+        banner(`<strong>${esc(p.error)}</strong> Run the morning task once to create it.`);
+      } else {
+        app.digest = p;
+        const ageH = (Date.now() - new Date(p.created_at).getTime()) / 36e5;
+        setStatus(ageH > 20 ? "stale" : "live", `Live · built ${timeLabel(p.created_at)}`);
+        banner(ageH > 20 ? `<strong>This digest is over 20 hours old.</strong> The morning task may not have run.` : "");
+      }
+      render();
+    }, { refetchInterval: 5 * 60 * 1000 });
+  }
+
+  function watchLeagues() {
+    app.mcp.watchTool(SERVER, "leagues", null, (ev) => {
+      if (ev.type === "error") return handleError(ev.error, "your leagues");
+      const list = ((ev.result && ev.result.payload && ev.result.payload.leagues) || []).map((l) => l.name);
+      if (!list.length) {
+        app.mode = "live";
+        setStatus("live", "Connected");
+        banner(`<strong>Connected to puckdesk.</strong> No digest yet: it appears after the morning task runs once.`);
+        return;
+      }
+      const remembered = store.get("puckdesk.league");
+      const wanted = list.includes(app.league) ? app.league : (list.includes(remembered) ? remembered : list[0]);
+      const changed = wanted !== app.watchedLeague;
+      app.leagues = list;
+      app.league = wanted;
+      renderTabs();
+      if (changed) watchDigest(wanted);
+    }, { refetchInterval: 10 * 60 * 1000 });
+  }
+
+  // First paint: the sample, so the page is complete before anything loads.
+  renderTabs();
+  render();
+
+  (async () => {
+    let mcp = null;
+    try { mcp = window.claude && window.claude.use ? await window.claude.use("mcp") : null; } catch { mcp = null; }
+    if (!mcp) return;
+    app.mcp = mcp;
+    setStatus("", "Connecting…");
+    watchLeagues();
+  })();
+})();
+</script>
