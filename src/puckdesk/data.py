@@ -66,6 +66,10 @@ class DataSource(Protocol):
         """Stored tags keyed by normalised player name."""
         ...
 
+    def goalie_hints(self, start: date, end: date) -> list[dict]:
+        """Starting-goalie guesses: [{game_date, norm_name, team, status}]."""
+        ...
+
 
 class MemoryData:
     """A small in-memory DataSource for tests and what-if experiments."""
@@ -79,6 +83,7 @@ class MemoryData:
         self.goalie_season: dict[int, GoalieLine] = {}
         self.goalie_prior: dict[int, GoalieLine] = {}
         self._tags: dict[str, dict[str, str]] = {}
+        self.hints: list[dict] = []
 
     # --- building ---------------------------------------------------------
     def add_player(self, pid: int, name: str, team: str, position: str) -> None:
@@ -131,3 +136,6 @@ class MemoryData:
 
     def tags(self, league: str) -> dict[str, str]:
         return dict(self._tags.get(league, {}))
+
+    def goalie_hints(self, start: date, end: date) -> list[dict]:
+        return [h for h in self.hints if start <= h["game_date"] <= end]

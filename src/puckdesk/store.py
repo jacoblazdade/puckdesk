@@ -267,6 +267,14 @@ class Store:
             rows = c.execute("select norm_name, tag from tags where league = %s", (league,)).fetchall()
         return {r["norm_name"]: r["tag"] for r in rows}
 
+    def goalie_hints(self, start: date, end: date) -> list[dict]:
+        with self.conn() as c:
+            rows = c.execute(
+                "select game_date, norm_name, team, status from goalie_guesses where game_date between %s and %s",
+                (start, end),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
     def tag_list(self, league: str) -> list[dict]:
         with self.conn() as c:
             rows = c.execute("select name, tag, updated_at from tags where league = %s order by tag, name", (league,)).fetchall()

@@ -73,7 +73,8 @@ uv run pytest                 # tests (uses an embedded Postgres)
 - DobberHockey articles (RSS, full text).
 - Daily Faceoff line combinations: lines, PP units, goalies and injuries, with
   change detection.
-- Optional: a few X accounts through the paid X API.
+- Game Day Tweets: beat-writer tweets on lines, goalies and injuries, and
+  starting-goalie guesses that feed the projections.
 
 The list lives in `sources.toml`.
 

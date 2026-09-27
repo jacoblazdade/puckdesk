@@ -370,7 +370,9 @@ footer .wrap { color: var(--muted); font-size: 12.5px; display: flex; flex-direc
         <div class="sechead"><h2>What they're saying</h2><span>podcast, articles, posts · last 10 days</span></div>
         ${names.map((n) => `<div class="mention"><span class="who2">${esc(n)}</span>
           ${men[n].map((h) => `<div class="hit">
-            <span class="src"><b>${esc(h.source)}</b> · ${h.link ? `<a href="${esc(h.link)}" target="_blank" rel="noopener">${esc(h.title)}</a>` : esc(h.title)}${h.timestamp ? ` · at ${esc(h.timestamp)}` : ""}${h.at ? ` · ${esc(dayLabel(h.at.slice(0, 10)))}` : ""}</span>
+            <span class="src">${h.kind === "post"
+              ? `<b>@${esc(h.source)}</b> · ${h.link ? `<a href="${esc(h.link)}" target="_blank" rel="noopener">via Game Day Tweets</a>` : "via Game Day Tweets"}`
+              : `<b>${esc(h.source)}</b> · ${h.link ? `<a href="${esc(h.link)}" target="_blank" rel="noopener">${esc(h.title)}</a>` : esc(h.title)}`}${h.timestamp ? ` · at ${esc(h.timestamp)}` : ""}${h.at ? ` · ${esc(dayLabel(h.at.slice(0, 10)))}` : ""}</span>
             <q>${snip(h.snippet)}</q></div>`).join("")}
         </div>`).join("")}
       </section>` : "";

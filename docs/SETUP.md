@@ -49,8 +49,8 @@ feed and DobberHockey articles, and starts four background jobs:
 | --- | --- | --- |
 | server | always | the MCP server for Claude |
 | nightly | 05:30, 06:45, 12:00 | NHL schedule, rosters, box scores |
-| lines | 06:20, 11:30, 16:20, 21:30 | Daily Faceoff lines, PP units, goalies, injuries |
-| media | every 2 hours | Keeping Karlsson (transcribed locally), DobberHockey, X posts |
+| lines | 06:20, 11:30, 16:20, 21:30 | Daily Faceoff lines, PP units, goalies, injuries; Game Day Tweets posts and goalie guesses |
+| media | every 2 hours | Keeping Karlsson (transcribed locally), DobberHockey |
 
 The first transcription downloads the Whisper model (about 1.6 GB). It ends
 with `ok <- server is up`. Check the news sources with
@@ -101,17 +101,13 @@ Ask Claude to schedule the prompt in `docs/claude-digest-task.md` daily at
 06:50, with a push notification when it finishes. Add a 16:50 run for the
 goalie check if you want it.
 
-## Optional: X posts
+## Beat-writer tweets without X
 
-The lineup account is @GameDayLines (line combinations and starting goalies
-from beat writers). The accounts are listed in `sources.toml`. X charges
-$0.005 per post read, so this stays off until you add a token:
-
-1. Create a developer account at https://developer.x.com and an app with
-   pay-per-use billing.
-2. Put its bearer token in `.env` as `X_BEARER_TOKEN=...`. The media job then
-   polls the accounts every two hours, capped at `monthly_read_cap` reads
-   (4,000 reads is about $20 a month).
+Game Day Tweets (gamedaytweets.com) already collects beat writers' posts on
+lines, starting goalies and injuries, and publishes its own starting-goalie
+guesses. The `lines` job reads both four times a day, so there's no X account
+or API cost. Posts show up in `search_media`, and the goalie guesses feed the
+start probabilities in the projections.
 
 Left Wing Lock and Frozen Tools need subscriptions, so they aren't fetched.
 

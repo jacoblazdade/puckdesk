@@ -100,9 +100,7 @@ def cmd_serve(a) -> None:
 
 
 def cmd_media(a) -> None:
-    """Podcasts, article feeds and (if configured) X posts."""
-    import os
-
+    """Podcasts and article feeds."""
     from . import media
 
     src = media.load_sources()
@@ -122,18 +120,22 @@ def cmd_media(a) -> None:
         prompts.append(f"{pod['name']} fantasy hockey podcast with {', '.join(pod.get('hosts', []))}.")
     if not a.no_transcribe:
         out["transcribed"] = media.transcribe_pending(store, limit=a.limit, prompt=" ".join(prompts) + " NHL players, power play, waivers.")
-    token = os.environ.get("X_BEARER_TOKEN")
-    if token and src.get("x", {}).get("accounts"):
-        from . import xposts
-
-        out["x"] = xposts.poll(store, token, src["x"]["accounts"], src["x"].get("monthly_read_cap", 4000))
     print(json.dumps(out, indent=2, default=str))
 
 
 def cmd_lines(a) -> None:
-    from . import lines
+    """Daily Faceoff line combinations, plus Game Day Tweets posts and goalie guesses."""
+    from . import gamedaytweets, lines, media
 
-    print(json.dumps(lines.sync_all(_store(), a.teams or None), indent=2))
+    store = _store()
+    out = {"daily_faceoff": lines.sync_all(store, a.teams or None)}
+    gdt = media.load_sources().get("gamedaytweets")
+    if gdt is not None:
+        try:
+            out["gamedaytweets"] = gamedaytweets.sync(store, pages=gdt.get("pages", 3))
+        except Exception as e:  # noqa: BLE001
+            out["gamedaytweets"] = f"error: {e}"
+    print(json.dumps(out, indent=2, default=str))
 
 
 def cmd_verify_sources(a) -> None:
@@ -159,6 +161,12 @@ def cmd_verify_sources(a) -> None:
         out["daily_faceoff"] = lines.verify(a.team)
     except Exception as e:  # noqa: BLE001
         out["daily_faceoff"] = f"error: {e}"
+    from . import gamedaytweets
+
+    try:
+        out["gamedaytweets"] = gamedaytweets.verify()
+    except Exception as e:  # noqa: BLE001
+        out["gamedaytweets"] = f"error: {e}"
     print(json.dumps(out, indent=2, default=str))
 
 
@@ -204,11 +212,11 @@ def main(argv: list[str] | None = None) -> None:
     s.add_argument("--moves", type=int, default=3)
     s.set_defaults(fn=cmd_digest)
     sub.add_parser("serve", help="run the MCP server").set_defaults(fn=cmd_serve)
-    s = sub.add_parser("media", help="podcasts, article feeds and X posts")
+    s = sub.add_parser("media", help="podcasts and article feeds")
     s.add_argument("--limit", type=int, default=2, help="episodes to transcribe per run")
     s.add_argument("--no-transcribe", action="store_true")
     s.set_defaults(fn=cmd_media)
-    s = sub.add_parser("lines", help="Daily Faceoff line combinations and lineup changes")
+    s = sub.add_parser("lines", help="Daily Faceoff lines, Game Day Tweets posts and goalie guesses")
     s.add_argument("teams", nargs="*")
     s.set_defaults(fn=cmd_lines)
     s = sub.add_parser("verify-sources", help="check the podcast, feeds and Daily Faceoff parsing")

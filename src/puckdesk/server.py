@@ -36,7 +36,7 @@ then call morning_digest. The latest digest is stored and can be re-read with
 latest_digest. Roster tags live on the server: set_tags / get_tags.
 
 News: search_media searches Keeping Karlsson podcast transcripts (with
-timestamps), DobberHockey articles and X posts. team_lines and lineup_changes
+timestamps), DobberHockey articles and Game Day Tweets beat-writer posts. team_lines and lineup_changes
 come from Daily Faceoff line combinations (PP units, lines, goalies, injuries).
 """
 
@@ -189,7 +189,7 @@ def build(settings: Settings) -> MCPServer:
 
     @mcp.tool(annotations=READ)
     def search_media(query: str, days: int = 14, limit: int = 12) -> dict:
-        """Search Keeping Karlsson transcripts, DobberHockey articles and X posts, newest first.
+        """Search Keeping Karlsson transcripts, DobberHockey articles and Game Day Tweets posts, newest first.
         Podcast hits carry the episode id and a timestamp (h:mm:ss); use podcast_transcript to read around it.
         Query syntax: words, "exact phrases", or, -exclude."""
         return {"query": query, "hits": media.search(store, query, days=days, limit=limit)}

@@ -147,9 +147,12 @@ create table if not exists articles (
 create index if not exists articles_tsv on articles using gin (tsv);
 create index if not exists articles_published on articles (published desc);
 
+-- Beat-writer tweets collected by Game Day Tweets.
 create table if not exists posts (
     id         text primary key,
+    source     text not null default 'gamedaytweets',
     account    text not null,
+    kind       text,                        -- lines, news, stats
     posted_at  timestamptz,
     text       text not null,
     url        text,
@@ -158,15 +161,6 @@ create table if not exists posts (
 create index if not exists posts_tsv on posts using gin (tsv);
 create index if not exists posts_posted_at on posts (posted_at desc);
 
-create table if not exists x_state (
-    account   text primary key,
-    user_id   text,
-    since_id  text
-);
-create table if not exists x_usage (
-    month  text primary key,
-    reads  integer not null default 0
-);
 
 -- Daily Faceoff line combinations, one row per change.
 create table if not exists team_lines (
@@ -187,3 +181,14 @@ create table if not exists lineup_changes (
     detected_at  timestamptz not null default now()
 );
 create index if not exists lineup_changes_detected on lineup_changes (detected_at desc);
+
+-- Starting goalie guesses from Game Day Tweets, per game date (US Eastern).
+create table if not exists goalie_guesses (
+    game_date   date not null,
+    norm_name   text not null,
+    name        text not null,
+    team        text,
+    status      text not null,             -- confirmed, starter, likely, ...
+    fetched_at  timestamptz not null default now(),
+    primary key (game_date, norm_name)
+);

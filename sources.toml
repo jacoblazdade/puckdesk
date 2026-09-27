@@ -16,17 +16,11 @@ url = "https://dobberhockey.com/feed/"
 line_combinations = "https://www.dailyfaceoff.com/teams/{slug}/line-combinations"
 starting_goalies = "https://www.dailyfaceoff.com/starting-goalies/{date}"
 
-[x]
-# Polled only when X_BEARER_TOKEN is set in .env (X API, $0.005 per post read).
-accounts = [
-  "GameDayLines",     # line combinations and starting goalies from beat writers
-  "GameDayNewsNHL",   # injuries and news from beat writers
-  "DFOFantasy",       # Daily Faceoff fantasy
-  "DailyFaceoff",
-  "DobberHockey",
-  "keepingkarlsson",
-]
-monthly_read_cap = 4000
+[gamedaytweets]
+# Beat-writer tweets on lines, goalies and news, plus starting-goalie guesses.
+# Free on the site, so no X API is needed.
+url = "https://www.gamedaytweets.com/"
+pages = 3
 
 [paywalled]
 # Need a subscription; not fetched automatically.

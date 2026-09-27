@@ -81,6 +81,10 @@ class Projector:
         self.as_of = as_of
         self.skater_cats = skater_cats
         self.stored_tags = data.tags(league.name)
+        # Starting-goalie guesses (Game Day Tweets) override season start shares on their dates.
+        hints = data.goalie_hints(as_of, league.week_end) if hasattr(data, "goalie_hints") else []
+        self.hint_by_goalie = {(h["game_date"], h["norm_name"]): h["status"] for h in hints}
+        self.hint_by_team = {(h["game_date"], names.team(h["team"])): h["norm_name"] for h in hints if h.get("team")}
 
     def window(self) -> tuple[date, date]:
         return self.as_of, self.league.week_end
@@ -140,6 +144,19 @@ class Projector:
             start = fa.waiver_clears
         return self.player(fa, start=start)
 
+    def start_prob(self, g: Proj, d: date) -> float:
+        """Chance a goalie starts on a date: a posted guess beats the season share."""
+        status = self.hint_by_goalie.get((d, g.key))
+        if status == "confirmed":
+            p = 0.97
+        elif status:
+            p = 0.85
+        elif (d, g.team) in self.hint_by_team:
+            p = min(g.grates.start_share, 0.12)  # someone else is expected in net
+        else:
+            p = g.grates.start_share
+        return p * g.avail
+
     # --- lineups --------------------------------------------------------------
     def usage(self, projs: list[Proj]) -> Usage:
         slots = {k.upper(): v for k, v in self.league.roster_slots.items()}
@@ -172,9 +189,10 @@ class Projector:
                         skater_games[p.key] = skater_games.get(p.key, 0.0) + p.avail
                         active.append(p.key)
             if goalies and g_slots:
-                goalies.sort(key=lambda g: g.grates.start_share * g.avail, reverse=True)
+                probs = {g.key: self.start_prob(g, d) for g in goalies}
+                goalies.sort(key=lambda g: probs[g.key], reverse=True)
                 for g in goalies[:g_slots]:
-                    goalie_games.append((g.key, g.grates.start_share * g.avail, g.grates.sv_pct, g.grates.sa_per_start))
+                    goalie_games.append((g.key, probs[g.key], g.grates.sv_pct, g.grates.sa_per_start))
                     active.append(g.key)
             by_date[d] = active
             d += timedelta(days=1)
