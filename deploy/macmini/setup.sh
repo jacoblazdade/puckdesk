@@ -13,7 +13,7 @@ command -v uv >/dev/null || brew install uv
 command -v ffmpeg >/dev/null || brew install ffmpeg   # audio decoding for Whisper
 brew services start postgresql@17
 PG_BIN="$(brew --prefix postgresql@17)/bin"
-sleep 2
+for _ in $(seq 1 30); do "$PG_BIN/pg_isready" -q && break; sleep 1; done
 "$PG_BIN/createdb" puckdesk 2>/dev/null || echo "database puckdesk already exists"
 
 echo "==> Python environment (with local Whisper)"
@@ -43,10 +43,10 @@ uv run puckdesk sync-priors
 uv run puckdesk sync-rosters
 uv run puckdesk status
 
-echo "==> News sources"
-uv run puckdesk verify-sources
-uv run puckdesk lines
-uv run puckdesk media --no-transcribe   # the background job transcribes; the first run downloads the Whisper model (~1.6 GB)
+echo "==> News sources (a failure here doesn't stop the setup; the background jobs retry)"
+uv run puckdesk verify-sources || echo "warning: verify-sources failed"
+uv run puckdesk lines || echo "warning: lines failed"
+uv run puckdesk media --no-transcribe || echo "warning: media failed"   # the background job transcribes; the first run downloads the Whisper model (~1.6 GB)
 
 echo "==> Background jobs (launchd)"
 UV="$(command -v uv)"
@@ -60,8 +60,12 @@ for name in server nightly media lines; do
   launchctl bootstrap "gui/$(id -u)" "$dst"
 done
 
-sleep 3
-curl -fsS "http://127.0.0.1:8765/healthz" && echo " <- server is up"
+UP=no
+for _ in $(seq 1 30); do
+  if curl -fsS "http://127.0.0.1:8765/healthz" 2>/dev/null; then echo " <- server is up"; UP=yes; break; fi
+  sleep 1
+done
+[ "$UP" = yes ] || echo "warning: server not answering yet; see ~/Library/Logs/puckdesk-server.log"
 
 cat <<EOF
 
