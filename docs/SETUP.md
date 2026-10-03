@@ -26,9 +26,10 @@ Done:
   endpoint lists all 18 tools.
 - LuLu firewall uninstalled.
 
+- Code pushed to `https://github.com/jacoblazdade/puckdesk` (step 1).
+
 Still open, for Jacob:
 
-- Push to GitHub (step 1).
 - Disable key expiry for `jacobs-mac-mini` in the Tailscale admin console
   (Machines → ⋯ → Disable key expiry); otherwise it drops off in about 6 months.
 - `sudo pmset -a sleep 0 disksleep 0` and automatic login, if not done yet (step 2).
