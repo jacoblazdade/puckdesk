@@ -23,9 +23,15 @@ This is a personal tool for my own two leagues, hockey1234123 and The League
   by the end of the week.
 - **Roster tags.** `core` players are never suggested as drops, `hold` players
   only for a clear upgrade, `stream` players freely.
+- **Strategy per league.** `win_now` maximizes this week's category wins;
+  `rebuild` scores moves mostly by long-term asset value (age, role, ice time
+  and shot trends, early production, % rostered trend, Dobber's keeper
+  ranks) and lists sell-high candidates and breakout free agents; `balanced`
+  sits in between.
 - **Context.** Core players who are cold but whose shot volume is intact
-  ("hold"), players shooting far above their normal rate, and next week's
-  schedule with light nights.
+  ("hold"), players shooting far above their normal rate, next week's
+  schedule with light nights, and the newest real news item for the players
+  that matter that morning (at most 8), with Claude's one-line takeaways.
 
 ## How it's built
 

@@ -13,12 +13,14 @@ Configured in `leagues.toml` (the source of truth; `leagues.py` loads it).
 Use these names everywhere: tags and digests are stored under them, and tools
 also accept the Yahoo league key.
 
-- **hockey1234123** (477.l.60199), team 6 "Kapri's Papi": G, A, PPP, SOG,
-  HIT, BLK, W, GAA, SV%, SHO. Roster C, C, LW, LW, RW, RW, D x4, Util x2,
-  G x2, 5 BN, 3 IR+. Minimum 3 goalie appearances.
-- **The League** (477.l.42782), team 6 "Dude Where's Makar?", keeper league:
-  G, A, PIM, PPP, SOG, FW, HIT, BLK, W, GAA, SV, SV%, SHO. Roster C, C, LW,
-  LW, RW, RW, D x4, Util, G x2, 4 BN, 1 IR+. Minimum 2 goalie appearances.
+- **hockey1234123** (477.l.60199), team 6 "Kapri's Papi", 10 teams: G, A,
+  PPP, SOG, HIT, BLK, W, GAA, SV%, SHO. Roster C, C, LW, LW, RW, RW, D x4,
+  Util x2, G x2, 5 BN, 3 IR+. Minimum 3 goalie appearances. Strategy
+  `win_now`.
+- **The League** (477.l.42782), team 6 "Dude Where's Makar?", 20-team keeper
+  league: G, A, PIM, PPP, SOG, FW, HIT, BLK, W, GAA, SV, SV%, SHO. Roster C,
+  C, LW, LW, RW, RW, D x4, Util, G x2, 4 BN, 1 IR+. Minimum 2 goalie
+  appearances. Strategy `rebuild`.
 - Both: 5 adds per week, 2-day continual rolling waivers (a dropped player is
   on waivers until drop time + 2 days). Weeks run Monday to Sunday; week 1
   ends Sunday 4 Oct 2026. Sunday is prep day for next week.
@@ -27,6 +29,45 @@ also accept the Yahoo league key.
   applies it per simulation (if both teams are short, it counts as a loss).
 - Roster tags: `core` is never suggested as a drop, `hold` only for a clear
   upgrade, `stream` freely.
+- IR+ takes DTD, O, IR and IR-LT. A player in an IR+ slot is never a drop
+  while the roster is full (dropping him frees no roster spot for the add).
+
+## Strategy and asset value
+
+Each league has a strategy and a note (`leagues.toml`; `set_strategy`
+overrides are stored in `league_strategy`; unconfigured leagues are
+`balanced`). Moves are scored as week weight x change in expected category
+wins + asset weight x change in asset value: win_now 1.0/0, balanced 0.6/0.5,
+rebuild 0.2/1.0 (`engine.WEIGHTS`).
+
+`value.py` gives every player an asset value (about 1.0 = top-60 keeper
+asset, under 0.2 = replaceable) from: Dobber's Top 300 Keeper League rank and
+change (`keeper.py` parses the monthly article), age (birth dates from the
+NHL roster API, or the player page for injured players), Daily Faceoff line
+and PP unit, Game Day Tweets posts putting him on the top unit, ice time and
+shot trends against last season, early production, and Yahoo-wide %
+rostered with its trend (daily snapshots in `rostered_snapshots`, written from
+every LeagueState). Each bonus carries a short reason.
+
+- rebuild and balanced never drop a young upside player (25 or younger with a
+  top-6 / top-4 D or PP1 role, or rising % rostered) for a lower-value add;
+  rebuild only streams goalies when the drop has little value (under 0.2).
+- In every strategy, drops within 0.05 of each other count as a tie: the one
+  with less asset value goes, and a bench player before a regular.
+- Digest sections `sell_high` (my players at a likely peak: hot shooting,
+  % rostered jump, PP1 he didn't have last season) and `breakout_watch`
+  (free agents with a rising role and under 30% rostered).
+
+## News in the digest
+
+`mentions.py`: a text mentions a player with his full name, or his last name
+plus his team (city, nickname, hashtag or abbreviation). A shared last name
+doesn't count when the other player's team is in the text or both play for
+the same team. Ranking-table paragraphs are skipped. Only players in the
+moves, sell_high, breakout_watch, role changes and my injured players get a
+mention: the newest real item each, at most 8. Claude stores one-line
+takeaways (20 words max) with `set_news_notes`; `latest_digest` returns them
+as `news_notes`.
 
 ## Flaim
 
@@ -55,8 +96,10 @@ otherwise from NHL box scores for the team's current goalies.
 - `src/puckdesk/`: `engine.py` (matchup, moves, digest), `projection.py`
   (rates to per-day usage, goalie start probability), `simulate.py` (Monte
   Carlo, goalie minimum), `rates.py`, `categories.py`, `models.py`
-  (LeagueState), `leagues.py` (league config, weeks), `leaguestate.py`
-  (completes a Flaim-built LeagueState), `store.py`
+  (LeagueState), `leagues.py` (league config, weeks, strategy),
+  `leaguestate.py` (completes a Flaim-built LeagueState), `value.py` (asset
+  value), `keeper.py` (Dobber keeper table), `mentions.py` (news matching),
+  `store.py`
   (Postgres), `nhl.py` (public NHL APIs), `media.py` (podcast RSS, Whisper,
   DobberHockey, full-text search), `lines.py` (Daily Faceoff lines),
   `gamedaytweets.py` (beat-writer tweets and goalie guesses), `yahoo.py`
