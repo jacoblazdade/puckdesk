@@ -52,6 +52,11 @@ every LeagueState). Each bonus carries a short reason.
 - rebuild and balanced never drop a young upside player (25 or younger with a
   top-6 / top-4 D or PP1 role, or rising % rostered) for a lower-value add;
   rebuild only streams goalies when the drop has little value (under 0.2).
+- In every strategy, a move must leave the roster able to fill as many active
+  slots as before (`Engine.fillable`: a matching that counts every position a
+  player is eligible at; IR-slot players don't count). Among drops for the
+  same add, one at the add's position wins when it scores within 0.10 of the
+  best.
 - In every strategy, drops within 0.05 of each other count as a tie: the one
   with less asset value goes, and a bench player before a regular.
 - Digest sections `sell_high` (my players at a likely peak: hot shooting,

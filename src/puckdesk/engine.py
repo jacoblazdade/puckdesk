@@ -7,12 +7,13 @@ from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import numpy as np
+from scipy.optimize import linear_sum_assignment
 
 from . import categories, leagues
 from .data import DataSource
 from .leaguestate import complete
 from .models import LeagueState, TeamIn
-from .projection import Proj, Projector, Usage
+from .projection import SLOT_ACCEPTS, Proj, Projector, Usage
 from .simulate import CatResult, GoalieMinimum, compare, simulate_team
 from .value import Asset, Valuer
 
@@ -23,6 +24,7 @@ SHORT_CHANGE = 0.05  # change in the chance of missing the goalie minimum worth 
 # Move score = week weight x change in expected category wins + asset weight x change in asset value.
 WEIGHTS = {"win_now": (1.0, 0.0), "balanced": (0.6, 0.5), "rebuild": (0.2, 1.0)}
 NEAR_TIE = 0.05  # moves this close count as the same; the drop with less long-term value goes
+SAME_POSITION_MARGIN = 0.10  # a drop at the add's position wins when it scores at most this much lower
 REGULAR_PENALTY = 0.05  # in a near tie, keep a player in an active slot over a bench player
 LOW_VALUE = 0.2  # asset value of a replaceable player; rebuild streams goalies only over these
 SELL_HIGH_ROSTERED_JUMP = 15.0
@@ -264,17 +266,44 @@ class Engine:
         regular = bool(slot) and slot not in ("BN",) and not d.source.in_ir_slot
         return self.asset(d).value + (REGULAR_PENALTY if regular else 0.0)
 
+    def _active_slots(self) -> list[str]:
+        slots: list[str] = []
+        for name, count in self.league.roster_slots.items():
+            k = name.upper()
+            if k in SLOT_ACCEPTS or k == "G":
+                slots += [k] * count
+        return slots
+
+    def fillable(self, roster: list[Proj]) -> int:
+        """How many active slots (C, LW, RW, D, Util, G, ...) the roster can fill at once, counting every
+        position a player is eligible at. Players parked in IR slots don't count."""
+        slots = self._active_slots()
+        players = [p for p in roster if not p.source.in_ir_slot]
+        if not slots or not players:
+            return 0
+        fits = np.array([[1.0 if (p.goalie if s == "G" else not p.goalie and set(p.positions) & SLOT_ACCEPTS[s])
+                          else 0.0 for s in slots] for p in players])
+        rows, cols = linear_sum_assignment(fits, maximize=True)
+        return int(fits[rows, cols].sum())
+
     def _break_tie(self, best: tuple, full: list[tuple]) -> tuple[tuple, str | None]:
-        """Among drops for the same add within NEAR_TIE of the best, drop the one worth least long-term."""
-        ties = [t for t in full if t[2] is best[2] and best[0] - t[0] <= NEAR_TIE]
-        if len(ties) < 2:
-            return best, None
+        """Pick the drop for the chosen add: one at the add's position when it scores within
+        SAME_POSITION_MARGIN of the best, then, among drops within NEAR_TIE, the one worth least long-term."""
+        group = [t for t in full if t[2] is best[2] and best[0] - t[0] <= SAME_POSITION_MARGIN]
+        same = [t for t in group if set(t[2].positions) & set(t[3].positions)]
+        pool = same or [t for t in group if best[0] - t[0] <= NEAR_TIE]
+        top = max(pool, key=lambda t: t[0])
+        ties = [t for t in pool if top[0] - t[0] <= NEAR_TIE]
         pick = min(ties, key=lambda t: self._keep_value(t[3]))
         if pick is best:
             return best, None
         d0, d1 = best[3], pick[3]
-        note = (f"Drops {d1.name} rather than {d0.name}: nearly the same gain (+{pick[1]:.2f} vs +{best[1]:.2f}), "
-                f"and {d0.name} has more long-term value ({self.asset(d0).value:.2f} vs {self.asset(d1).value:.2f})")
+        if same and not set(best[2].positions) & set(d0.positions):
+            note = (f"Drops {d1.name} rather than {d0.name}: same position as {pick[2].name}, and nearly the "
+                    f"same score ({pick[0]:+.2f} vs {best[0]:+.2f})")
+        else:
+            note = (f"Drops {d1.name} rather than {d0.name}: nearly the same gain (+{pick[1]:.2f} vs +{best[1]:.2f}), "
+                    f"and {d0.name} has more long-term value ({self.asset(d0).value:.2f} vs {self.asset(d1).value:.2f})")
         return pick, note
 
     def plan_moves(self, max_moves: int = 3, screen_n: int = 3000) -> dict:
@@ -310,6 +339,7 @@ class Engine:
                 f"Not dropping {', '.join(blocked)}: IR+ slot with a full roster, so the drop frees no spot for an add."
             )
         used_add: set[str] = set()
+        holes: dict[str, str] = {}
         for _ in range(limit):
             base = self.evaluate(roster, screen_n)
             drops = [p for p in roster if p.tag in ("stream", "hold") and not self._ir_blocked(p)]
@@ -317,6 +347,7 @@ class Engine:
                 out["skipped"].append("No players tagged Stream or Hold that can be dropped.")
                 break
             scored = []
+            can_fill = self.fillable(roster)
             for a in candidates:
                 if a.key in used_add:
                     continue
@@ -324,6 +355,9 @@ class Engine:
                     if not self._allowed(a, d):
                         continue
                     trial = [p for p in roster if p.key != d.key] + [a]
+                    if self.fillable(trial) < can_fill:
+                        holes.setdefault(d.name, a.name)  # would leave an active slot empty
+                        continue
                     gain = self.evaluate(trial, screen_n).expected - base.expected
                     scored.append((self._score(gain, a, d), gain, a, d))
             if not scored:
@@ -376,6 +410,11 @@ class Engine:
             out["moves"].append(move.as_dict())
             roster = [p for p in roster if p.key != d.key] + [a]
             used_add.add(a.key)
+        if holes:
+            out["skipped"].append(
+                "Not dropping " + ", ".join(sorted(holes)) + " for an add at another position: it would leave an "
+                "active slot with no eligible player."
+            )
         return out
 
     # --- context for the digest ------------------------------------------------------

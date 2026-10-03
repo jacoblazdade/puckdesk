@@ -238,3 +238,64 @@ def test_weights(strategy, weights):
     data, state = make_data(), make_state()
     data.strategies["Test league"] = {"strategy": strategy, "note": ""}
     assert Engine(data, state, n_sims=100).weights == weights
+
+
+# --- roster positions ----------------------------------------------------------------------
+def old_d_state():
+    """Rebuild, with a young forward on the wire and only an old, low-value defenseman to drop."""
+    data, state = keeper_league()
+    data.strategies["Test league"] = {"strategy": "rebuild", "note": ""}
+    for pid, p in data.players.items():
+        if p.name.startswith("My Defense"):
+            p.birth_date = born(35)
+    for p in state.my_team.players:
+        p.tag = "stream" if p.name == "My Defense 3" else "core"
+    state.free_agents = [fa for fa in state.free_agents if fa.name == "Young Gun"]
+    return data, state
+
+
+def test_fillable_counts_multi_position_eligibility():
+    data, state = make_data(), make_state()
+    eng = Engine(data, state, n_sims=100)
+    assert eng.fillable(eng.me) == 13  # 2 C, 2 LW, 2 RW, 4 D, 1 Util, 2 G
+    no_d = [p for p in eng.me if p.name != "My Defense 3"]
+    assert eng.fillable(no_d) == 12
+    # Six wingers who each play LW and RW fill both wing pairs and Util.
+    wingers = [p for p in eng.me if p.positions in (["LW"], ["RW"])]
+    for p in wingers:
+        p.positions = ["LW", "RW"]
+    assert eng.fillable([p for p in eng.me if p.name != "Brody Kettering"]) == 13
+
+
+def test_moves_keep_every_active_slot_filled():
+    data, state = old_d_state()
+    out = run(data, state, None)
+    # Young Gun for My Defense 3 would leave 3 D for 4 D slots.
+    assert out["moves"] == []
+    assert any("My Defense 3" in s and "active slot" in s for s in out["skipped"])
+    # A defenseman for a defenseman is fine.
+    data.add_player(905, "Young D", "DDD", "D", born(21))
+    data.season[905] = data.recent[905] = skater_line(6, goals=0.1, assists=0.3, points=0.4, shots=1.8, blocks=1.5)
+    data.roles["DDD"]["young d"] = {"line": "d1", "pp": "pp1"}
+    state.free_agents.append(FreeAgentIn(name="Young D", team="DDD", positions=["D"], percent_rostered=3))
+    mv = run(data, state, None)["moves"][0]
+    assert (mv["add"]["name"], mv["drop"]["name"]) == ("Young D", "My Defense 3")
+
+
+def test_same_position_drop_wins_a_small_value_gap():
+    data, state = keeper_league()
+    data.strategies["Test league"] = {"strategy": "rebuild", "note": ""}
+    for pid, name, pos, age in ((921, "Old Center", "C", 30), (922, "Old Wing", "L", 35)):
+        data.add_player(pid, name, "CCC", pos, born(age))
+        data.season[pid] = data.recent[pid] = skater_line(6, **AVG_F)
+    for p in state.my_team.players:
+        p.tag = "core"
+    state.my_team.players += [P("Old Center", "CCC", ["C"], "stream"), P("Old Wing", "CCC", ["LW"], "stream")]
+    state.free_agents = [fa for fa in state.free_agents if fa.name == "Young Gun"]
+    eng = Engine(data, state, n_sims=2000)
+    gap = eng.asset(next(p for p in eng.me if p.name == "Old Center")).value - \
+        eng.asset(next(p for p in eng.me if p.name == "Old Wing")).value
+    assert 0 < gap <= 0.1  # the wing is worth a little less
+    mv = eng.plan_moves(max_moves=1, screen_n=1000)["moves"][0]
+    assert (mv["add"]["name"], mv["drop"]["name"]) == ("Young Gun", "Old Center")
+    assert any(r.startswith("Drops Old Center rather than Old Wing: same position as Young Gun") for r in mv["reasons"])
