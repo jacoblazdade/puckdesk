@@ -16,6 +16,8 @@ from .models import FreeAgentIn, LeagueIn, PlayerIn
 from .rates import GoalieRates, SkaterRates, goalie_rates, skater_rates
 
 DTD_PLAY_PROB = 0.7
+# Goalie guess reasons that mean a plain starter; other reasons (back to back, alternating) count less.
+STRONG_GUESS = {"starter", "likely", "probable", "expected", "projected"}
 
 # Which fantasy positions fill which lineup slot.
 SLOT_ACCEPTS = {
@@ -149,8 +151,10 @@ class Projector:
         status = self.hint_by_goalie.get((d, g.key))
         if status == "confirmed":
             p = 0.97
-        elif status:
+        elif status in STRONG_GUESS:
             p = 0.85
+        elif status:
+            p = 0.75  # a guess with a caveat: back to back, alternating, ...
         elif (d, g.team) in self.hint_by_team:
             p = min(g.grates.start_share, 0.12)  # someone else is expected in net
         else:

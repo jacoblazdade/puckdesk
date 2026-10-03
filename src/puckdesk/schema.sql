@@ -152,7 +152,7 @@ create table if not exists posts (
     id         text primary key,
     source     text not null default 'gamedaytweets',
     account    text not null,
-    kind       text,                        -- lines, news, stats
+    kind       text,                        -- lines, news, stats, goalies
     posted_at  timestamptz,
     text       text not null,
     url        text,
