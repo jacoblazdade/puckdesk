@@ -9,18 +9,54 @@ and records the state of the Mac mini.
 
 ## The leagues
 
-- League 1: G, A, SOG, PPP, BLK, HIT, W, SV%, GAA, SO
-- League 2: G, A, SOG, PPP, BLK, HIT, PIM, FW, W, SV, SV%, GAA, SO
-- Weeks start Monday. 4 to 5 adds per week. Waivers clear 03:00 ET (09:00 in
-  Cologne, 08:00 during the two DST gap weeks). Sunday is prep day for next week.
+Configured in `leagues.toml` (the source of truth; `leagues.py` loads it).
+Use these names everywhere: tags and digests are stored under them, and tools
+also accept the Yahoo league key.
+
+- **hockey1234123** (477.l.60199), team 6 "Kapri's Papi": G, A, PPP, SOG,
+  HIT, BLK, W, GAA, SV%, SHO. Roster C, C, LW, LW, RW, RW, D x4, Util x2,
+  G x2, 5 BN, 3 IR+. Minimum 3 goalie appearances.
+- **The League** (477.l.42782), team 6 "Dude Where's Makar?", keeper league:
+  G, A, PIM, PPP, SOG, FW, HIT, BLK, W, GAA, SV, SV%, SHO. Roster C, C, LW,
+  LW, RW, RW, D x4, Util, G x2, 4 BN, 1 IR+. Minimum 2 goalie appearances.
+- Both: 5 adds per week, 2-day continual rolling waivers (a dropped player is
+  on waivers until drop time + 2 days). Weeks run Monday to Sunday; week 1
+  ends Sunday 4 Oct 2026. Sunday is prep day for next week.
+- Goalie minimum (Yahoo rule): a team below it can't win any goalie category
+  that week; an appearance means the goalie touched the ice. `simulate.compare`
+  applies it per simulation (if both teams are short, it counts as a loss).
 - Roster tags: `core` is never suggested as a drop, `hold` only for a clear
   upgrade, `stream` freely.
 
+## Flaim
+
+Flaim (the Yahoo connector in claude.ai) is the Yahoo source until Yahoo
+approves API access. It doesn't return league settings, waiver status or week
+dates. Claude copies what it does return into a LeagueState
+(`league_state_guide` documents the shape) and `leaguestate.complete()` fills
+in the rest before the engine runs:
+
+- settings and the current week from `leagues.toml`;
+- matchup values keyed by Yahoo names (SHO becomes SO internally, but output
+  keeps the league's labels); GA and SA arrive as display-only stats, goalie
+  minutes are GA x 60 / GAA when GA > 0, saves SA - GA;
+- positions, lineup slot (`slot`) and injury status from get_roster;
+  % rostered from get_free_agents;
+- from get_transactions: players dropped within the waiver period are on
+  waivers until drop time + 2 days; my adds since Monday 00:00 ET are the
+  adds used.
+
+Goalie appearances so far come from the matchup when Claude passes them,
+otherwise from NHL box scores for the team's current goalies.
+
 ## Layout
 
+- `leagues.toml`: Jacob's leagues (see above).
 - `src/puckdesk/`: `engine.py` (matchup, moves, digest), `projection.py`
   (rates to per-day usage, goalie start probability), `simulate.py` (Monte
-  Carlo), `rates.py`, `categories.py`, `models.py` (LeagueState), `store.py`
+  Carlo, goalie minimum), `rates.py`, `categories.py`, `models.py`
+  (LeagueState), `leagues.py` (league config, weeks), `leaguestate.py`
+  (completes a Flaim-built LeagueState), `store.py`
   (Postgres), `nhl.py` (public NHL APIs), `media.py` (podcast RSS, Whisper,
   DobberHockey, full-text search), `lines.py` (Daily Faceoff lines),
   `gamedaytweets.py` (beat-writer tweets and goalie guesses), `yahoo.py`

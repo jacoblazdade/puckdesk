@@ -145,13 +145,18 @@ needs the open source variant.
    - URL: `https://<host>/mcp/<secret>`, where the secret is in `.env`:
      `grep PUCKDESK_SECRET ~/puckdesk/.env`
 2. **Flaim:** sign up at https://flaim.app, connect both Yahoo leagues, and
-   add the Flaim connector in Claude.
+   add the Flaim connector in Claude. Flaim doesn't return league settings,
+   waiver status or week dates, so those are in `leagues.toml` on the Mac mini
+   (categories, roster positions, 5 adds a week, 2-day continual rolling
+   waivers, the goalie minimum, weeks Monday to Sunday). Edit it if a league
+   changes its settings; the server reads it on every call.
 3. Open the **Puckdesk Digest** page and allow puckdesk when it asks.
 
 ## 6. First digest and tags (5 min)
 
 1. In a Claude chat, paste the prompt from `docs/claude-digest-task.md`.
-2. Reload the Puckdesk Digest page. Your leagues appear as tabs.
+2. Reload the Puckdesk Digest page. Your leagues appear as tabs:
+   **hockey1234123** and **The League**.
 3. Set your tags in **Roster tags**: Core for players you'd never drop, Stream
    for rotating slots. Hold is the default.
 

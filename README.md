@@ -6,15 +6,17 @@ Every morning before the waiver run it projects the current matchup category by
 category, suggests add/drop moves within the weekly add limit, and explains
 each one. It never suggests dropping a player you've tagged as a keeper.
 
-This is a personal tool for my own two leagues. It reads data only; it never
-makes roster moves.
+This is a personal tool for my own two leagues, hockey1234123 and The League
+(settings in `leagues.toml`). It reads data only; it never makes roster moves.
 
 ## What it does
 
 - **Matchup outlook.** Banked totals plus a 10,000-run simulation of the rest
   of the week give a win chance per category, with swing categories flagged.
   Ratio categories (SV%, GAA) are built from saves, shots, goals against and
-  minutes, never averaged.
+  minutes, never averaged. Yahoo's weekly goalie minimum is part of every
+  simulation: a team below it can't win any goalie category, so moves that
+  secure the minimum get their real value.
 - **Add/drop moves.** Every free agent and droppable player pair is scored by
   the change in expected category wins, after daily lineup-slot limits.
   Moves have to beat the value of keeping an add in hand, which falls to zero
@@ -32,9 +34,12 @@ makes roster moves.
   assignment per day; Monte Carlo finish to the week.
 - **Data** (`nhl.py`, `store.py`): NHL schedule, rosters and per-game stats from
   the public NHL APIs into Postgres.
+- **Leagues** (`leagues.toml`, `leagues.py`, `leaguestate.py`): the settings
+  Flaim doesn't return (categories, roster, add limit, waivers, week dates,
+  goalie minimum), plus waivers and adds used worked out from transactions.
 - **MCP server** (`server.py`): the engine as tools for Claude, served over
-  streamable HTTP. Claude reads the league from a Yahoo connector, calls
-  `morning_digest`, and shows the result.
+  streamable HTTP. Claude reads the league from a Yahoo connector (Flaim),
+  calls `morning_digest`, and shows the result.
 - **Yahoo** (`yahoo.py`): OAuth 2.0 and read-only access, pending approval of
   Yahoo Fantasy Sports API access.
 
