@@ -58,25 +58,52 @@ with `ok <- server is up`. Check the news sources with
 
 ## 4. Mac mini: make it reachable (5 min)
 
-1. Install Tailscale (`brew install --cask tailscale` or the App Store), open
-   it and sign in. If the `tailscale` command is missing, use the menu bar
-   app's option to install the command line tool.
-2. Turn on Funnel for port 8765:
+Any Tailscale variant works (App Store, Standalone, or Homebrew). puckdesk only
+shares a port, and Funnel supports that on all of them. Only sharing files
+needs the open source variant.
+
+1. Install Tailscale, or update it if it's already there:
+   - Homebrew: `brew install --cask tailscale-app`, or
+     `brew upgrade --cask tailscale-app` to update (the cask used to be
+     called `tailscale`)
+   - Standalone: menu bar icon → Check for Updates
+   - App Store: App Store → Updates
+
+   Open it and sign in. If the `tailscale` command is missing, turn on the
+   command line tool in the app's settings.
+2. If Tailscale was already set up on this Mac, check it before turning on
+   Funnel:
+   ```bash
+   tailscale version        # needs 1.38.3 or newer
+   tailscale status         # signed in, to the right tailnet?
+   tailscale funnel status  # is anything already shared on 443?
+   ```
+   - **Rename the machine first** if you want a nicer URL. The URL comes from
+     the machine name, and renaming it later breaks the Claude connector.
+     Rename it in the admin console under Machines.
+   - **Disable key expiry** for this machine in the admin console under
+     Machines → ⋯. Otherwise it drops off the tailnet when the key expires
+     (180 days by default).
+   - If something else is already funneled on 443, either reset it
+     (`tailscale funnel reset`) or put puckdesk on 8443
+     (`tailscale funnel --bg --https=8443 localhost:8765`) and use `host:8443`
+     everywhere below.
+3. Turn on Funnel for port 8765:
    ```bash
    tailscale funnel --bg 8765
    ```
    The first run prints a link to allow Funnel for your tailnet. Open it,
    allow, then run the command again.
-3. Find the public host name (it ends in `.ts.net`):
+4. Find the public host name (it ends in `.ts.net`):
    ```bash
    tailscale funnel status
    ```
-4. Put it in `~/puckdesk/.env` as `PUCKDESK_PUBLIC_HOST=mac-mini.tailXXXX.ts.net`
+5. Put it in `~/puckdesk/.env` as `PUCKDESK_PUBLIC_HOST=mac-mini.tailXXXX.ts.net`
    (no `https://`), then restart the server:
    ```bash
    launchctl kickstart -k gui/$(id -u)/com.puckdesk.server
    ```
-5. Check from your phone: `https://<host>/healthz` should say `ok`.
+6. Check from your phone: `https://<host>/healthz` should say `ok`.
 
 ## 5. Claude: connectors (5 min)
 

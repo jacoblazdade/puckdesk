@@ -71,7 +71,7 @@ cat <<EOF
 
 Next steps
 1. Keep the Mac awake:        sudo pmset -a sleep 0 disksleep 0
-2. Tailscale:                 install the Tailscale app, sign in, then run
+2. Tailscale:                 install or update it (brew install --cask tailscale-app), sign in, then run
                               tailscale funnel --bg 8765
                               (the first run prints a link to enable Funnel for your tailnet)
 3. Put the Funnel host name in .env as PUCKDESK_PUBLIC_HOST, then restart the server:
