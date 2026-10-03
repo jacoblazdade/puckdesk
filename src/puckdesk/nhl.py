@@ -51,6 +51,9 @@ class NHL:
     def roster(self, team: str) -> dict:
         return self.get(f"{WEB}/roster/{team}/current")
 
+    def player(self, player_id: int) -> dict:
+        return self.get(f"{WEB}/player/{player_id}/landing")
+
     # --- stats REST ------------------------------------------------------------
     def report(self, entity: str, report: str, cayenne: str, per_game: bool) -> Iterator[dict]:
         """Page through a stats report. entity: skater or goalie."""
@@ -126,7 +129,8 @@ def parse_roster(team: str, body: dict) -> list[dict]:
         for p in body.get(group, []):
             first = p.get("firstName", {}).get("default", "")
             last = p.get("lastName", {}).get("default", "")
-            out.append({"id": p["id"], "name": f"{first} {last}".strip(), "team": team, "position": p.get("positionCode")})
+            out.append({"id": p["id"], "name": f"{first} {last}".strip(), "team": team, "position": p.get("positionCode"),
+                        "birth_date": p.get("birthDate")})
     return out
 
 
@@ -187,6 +191,11 @@ def skater_season_rows(merged: dict[tuple, dict], season: int) -> list[dict]:
         if gp <= 0:
             continue
         stats = {stat: _int(_pick(r, *fields, default=0)) for stat, fields in SKATER_FIELDS.items()}
+        # Ice time per game, for role trends (this season's per-game rows carry their own).
+        for key, fields in (("toi_per_game_sec", ("timeOnIcePerGame",)), ("pp_toi_per_game_sec", ("ppTimeOnIcePerGame",))):
+            v = _pick(r, *fields)
+            if v is not None:
+                stats[key] = round(float(v), 1)
         out.append({"player_id": pid, "season": season, "kind": "skater", "gp": gp, "stats": stats})
     return out
 
@@ -277,7 +286,23 @@ def sync_rosters(nhl: NHL, store: Store) -> int:
             total += store.upsert_players(parse_roster(t, nhl.roster(t)))
         except httpx.HTTPError as e:
             log.warning("roster %s failed: %s", t, e)
+    sync_birth_dates(nhl, store)
     return total
+
+
+def sync_birth_dates(nhl: NHL, store: Store, limit: int = 400) -> int:
+    """Birth dates for players the current rosters leave out (injured reserve), from their player page."""
+    n = 0
+    for pid in store.players_missing_birth_date(limit):
+        try:
+            body = nhl.player(pid)
+        except httpx.HTTPError as e:
+            log.warning("player %s failed: %s", pid, e)
+            continue
+        if body.get("birthDate"):
+            store.set_birth_date(pid, body["birthDate"])
+            n += 1
+    return n
 
 
 def sync_games(nhl: NHL, store: Store, start: date, end: date) -> dict:
@@ -296,10 +321,11 @@ def sync_priors(nhl: NHL, store: Store, season: int) -> dict:
     cay = f"seasonId={season} and gameTypeId=2"
     reports = {rep: list(nhl.report("skater", rep, cay, per_game=False)) for rep in SKATER_REPORTS}
     merged = merge_skater_rows(reports, per_game=False)
-    store.upsert_players(player_rows_from_stats(reports["summary"], goalie=False))
+    # Last season's team must not overwrite a player's current one.
+    store.upsert_players(player_rows_from_stats(reports["summary"], goalie=False), keep_team=True)
     n_sk = store.upsert_season_totals(skater_season_rows(merged, season))
     g_rows = list(nhl.report("goalie", "summary", cay, per_game=False))
-    store.upsert_players(player_rows_from_stats(g_rows, goalie=True))
+    store.upsert_players(player_rows_from_stats(g_rows, goalie=True), keep_team=True)
     n_g = store.upsert_season_totals(goalie_season_rows(g_rows, season))
     return {"skaters": n_sk, "goalies": n_g}
 

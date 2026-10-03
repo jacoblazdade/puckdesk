@@ -8,17 +8,25 @@ from zoneinfo import ZoneInfo
 
 import numpy as np
 
-from . import categories
+from . import categories, leagues
 from .data import DataSource
 from .leaguestate import complete
 from .models import LeagueState, TeamIn
 from .projection import Proj, Projector, Usage
 from .simulate import CatResult, GoalieMinimum, compare, simulate_team
+from .value import Asset, Valuer
 
 EASTERN = ZoneInfo("America/New_York")
 LIGHT_NIGHT_MAX_GAMES = 8
 MIN_GAIN = 0.03  # expected category wins; below this a move is noise
 SHORT_CHANGE = 0.05  # change in the chance of missing the goalie minimum worth mentioning
+# Move score = week weight x change in expected category wins + asset weight x change in asset value.
+WEIGHTS = {"win_now": (1.0, 0.0), "balanced": (0.6, 0.5), "rebuild": (0.2, 1.0)}
+NEAR_TIE = 0.05  # moves this close count as the same; the drop with less long-term value goes
+REGULAR_PENALTY = 0.05  # in a near tie, keep a player in an active slot over a bench player
+LOW_VALUE = 0.2  # asset value of a replaceable player; rebuild streams goalies only over these
+SELL_HIGH_ROSTERED_JUMP = 15.0
+BREAKOUT_MAX_ROSTERED = 30.0
 RESERVE_BASE = 0.10  # value of keeping an add in hand on the first day of the week
 
 
@@ -47,6 +55,10 @@ class Move:
     uses_last_add: bool
     short_before: float | None = None
     short_after: float | None = None
+    score: float | None = None
+    asset_add: Asset | None = None
+    asset_drop: Asset | None = None
+    tie_note: str | None = None
     reasons: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict:
@@ -81,6 +93,9 @@ class Move:
             "confirm_goalie_start": bool(self.add.goalie and self.add.grates and self.add.grates.start_share < 0.9),
             "goalie_minimum_risk": None if self.short_before is None else {
                 "before": round(self.short_before, 3), "after": round(self.short_after, 3)},
+            "score": None if self.score is None else round(self.score, 3),
+            "asset_value": {"add": self.asset_add.as_dict(), "drop": self.asset_drop.as_dict()}
+            if self.asset_add and self.asset_drop else None,
             "reasons": self.reasons,
         }
 
@@ -98,9 +113,15 @@ class Engine:
         self.n_sims = n_sims
         self.seed = seed
         self.projector = Projector(data, self.league, self.as_of, self.skater_cats)
+        stored = data.strategy(self.league.name) if hasattr(data, "strategy") else None
+        self.strategy = leagues.strategy_for(self.league.name, stored)
+        self.weights = WEIGHTS[self.strategy["strategy"]]
+        self.valuer = Valuer(data, self.as_of, len(self.skater_cats))
         self.me = [self.projector.player(p) for p in self.state.my_team.players]
         self.opp = [self.projector.player(p) for p in self.state.opponent.players]
         self._opp_cache: dict[int, tuple] = {}
+        capacity = sum(n for k, n in self.league.roster_slots.items() if not k.upper().startswith(("IR", "IL")))
+        self.open_spots = capacity - sum(1 for p in self.me if not p.source.in_ir_slot) if capacity else 99
         self.goalie_min: GoalieMinimum | None = None
         self.apps_source = None
         if self.league.min_goalie_appearances and any(c.kind == "goalie" for c in self.cats):
@@ -216,11 +237,53 @@ class Engine:
         s = self.league.week_end + timedelta(days=1)
         return len(self.data.team_dates(team, s, s + timedelta(days=6)))
 
+    # --- asset value and drop rules ---------------------------------------------------
+    def asset(self, p: Proj) -> Asset:
+        return self.valuer.asset(p, p.source.percent_rostered)
+
+    def _score(self, gain: float, a: Proj, d: Proj) -> float:
+        wk, wa = self.weights
+        return wk * gain + (wa * (self.asset(a).value - self.asset(d).value) if wa else 0.0)
+
+    def _ir_blocked(self, p: Proj) -> bool:
+        """In an IR+ slot with a full roster: dropping him frees no roster spot, so the add can't happen."""
+        return p.source.in_ir_slot and self.open_spots <= 0
+
+    def _allowed(self, a: Proj, d: Proj) -> bool:
+        st = self.strategy["strategy"]
+        if st in ("rebuild", "balanced"):
+            da, aa = self.asset(d), self.asset(a)
+            if da.young_upside and aa.value <= da.value:
+                return False  # never a young upside player for a short-term stream
+            if st == "rebuild" and a.goalie and da.value > LOW_VALUE and aa.value < da.value:
+                return False  # goalie streams only when they cost no long-term value
+        return True
+
+    def _keep_value(self, d: Proj) -> float:
+        slot = (d.source.slot or "").upper()
+        regular = bool(slot) and slot not in ("BN",) and not d.source.in_ir_slot
+        return self.asset(d).value + (REGULAR_PENALTY if regular else 0.0)
+
+    def _break_tie(self, best: tuple, full: list[tuple]) -> tuple[tuple, str | None]:
+        """Among drops for the same add within NEAR_TIE of the best, drop the one worth least long-term."""
+        ties = [t for t in full if t[2] is best[2] and best[0] - t[0] <= NEAR_TIE]
+        if len(ties) < 2:
+            return best, None
+        pick = min(ties, key=lambda t: self._keep_value(t[3]))
+        if pick is best:
+            return best, None
+        d0, d1 = best[3], pick[3]
+        note = (f"Drops {d1.name} rather than {d0.name}: nearly the same gain (+{pick[1]:.2f} vs +{best[1]:.2f}), "
+                f"and {d0.name} has more long-term value ({self.asset(d0).value:.2f} vs {self.asset(d1).value:.2f})")
+        return pick, note
+
     def plan_moves(self, max_moves: int = 3, screen_n: int = 3000) -> dict:
         adds_left = self.adds_left()
         limit = max_moves if adds_left is None else min(max_moves, adds_left)
+        wk, wa = self.weights
         out: dict = {
             "adds": {"max": self.league.max_weekly_adds, "used": self.league.adds_used, "left": adds_left},
+            "strategy": self.strategy["strategy"],
             "moves": [],
             "skipped": [],
         }
@@ -235,44 +298,60 @@ class Engine:
             (p for p in pool if p.goalie), key=lambda p: p.games_left * p.grates.start_share, reverse=True
         )[:6]
         candidates = skaters + goalies
+        if wa:
+            # Keeper leagues: also the best long-term assets, whatever their games this week.
+            ranked = sorted((p for p in pool if not p.goalie), key=lambda p: self.asset(p).value, reverse=True)
+            candidates += [p for p in ranked if p not in candidates][:10]
 
         roster = list(self.me)
+        blocked = [p.name for p in roster if self._ir_blocked(p) and p.tag in ("stream", "hold")]
+        if blocked:
+            out["skipped"].append(
+                f"Not dropping {', '.join(blocked)}: IR+ slot with a full roster, so the drop frees no spot for an add."
+            )
         used_add: set[str] = set()
         for _ in range(limit):
             base = self.evaluate(roster, screen_n)
-            drops = [p for p in roster if p.tag in ("stream", "hold")]
+            drops = [p for p in roster if p.tag in ("stream", "hold") and not self._ir_blocked(p)]
             if not drops:
-                out["skipped"].append("No players tagged Stream or Hold, so nothing can be dropped.")
+                out["skipped"].append("No players tagged Stream or Hold that can be dropped.")
                 break
             scored = []
             for a in candidates:
                 if a.key in used_add:
                     continue
                 for d in drops:
+                    if not self._allowed(a, d):
+                        continue
                     trial = [p for p in roster if p.key != d.key] + [a]
-                    scored.append((self.evaluate(trial, screen_n).expected - base.expected, a, d))
+                    gain = self.evaluate(trial, screen_n).expected - base.expected
+                    scored.append((self._score(gain, a, d), gain, a, d))
+            if not scored:
+                break
             scored.sort(key=lambda t: t[0], reverse=True)
+            shortlist = scored[:8]
+            lead = scored[0][2]  # its other drops get a full look too, for the near-tie rule
+            shortlist += [t for t in scored[8:] if t[2] is lead and t[0] >= scored[0][0] - 3 * NEAR_TIE][:6]
 
             base_full = self.evaluate(roster)
-            reserve = self.reserve_value(None if adds_left is None else adds_left - len(out["moves"]))
-            best = None
-            for _, a, d in scored[:8]:
-                trial = [p for p in roster if p.key != d.key] + [a]
-                ev = self.evaluate(trial)
+            reserve = wk * self.reserve_value(None if adds_left is None else adds_left - len(out["moves"]))
+            need = max(MIN_GAIN, reserve)
+            full = []
+            for _, _, a, d in shortlist:
+                ev = self.evaluate([p for p in roster if p.key != d.key] + [a])
                 gain = ev.expected - base_full.expected
-                if d.tag == "hold" and gain < self.league.hold_threshold:
+                score = self._score(gain, a, d)
+                if d.tag == "hold" and score < self.league.hold_threshold:
                     continue
-                if gain < max(MIN_GAIN, reserve):
+                if score < need:
                     continue
-                if best is None or gain > best[0]:
-                    best = (gain, a, d, ev)
-            if best is None:
+                full.append((score, gain, a, d, ev))
+            if not full:
                 if not out["moves"]:
-                    out["skipped"].append(
-                        f"No add beats keeping the add in hand (needs +{max(MIN_GAIN, reserve):.2f} expected categories)."
-                    )
+                    out["skipped"].append(f"No add beats keeping the add in hand (needs a score of +{need:.2f}).")
                 break
-            gain, a, d, ev = best
+            best, tie_note = self._break_tie(max(full, key=lambda t: t[0]), full)
+            score, gain, a, d, ev = best
             before = {r.key: r.expected for r in base_full.results}
             after = {r.key: r.expected for r in ev.results}
             left_after = None if adds_left is None else adds_left - len(out["moves"]) - 1
@@ -288,8 +367,12 @@ class Engine:
                 uses_last_add=left_after == 0,
                 short_before=base_full.p_short,
                 short_after=ev.p_short,
+                score=score,
+                asset_add=self.asset(a),
+                asset_drop=self.asset(d),
+                tie_note=tie_note,
             )
-            move.reasons = _reasons(move, self.goalie_min.required if self.goalie_min else 0)
+            move.reasons = _reasons(move, self.goalie_min.required if self.goalie_min else 0, wa > 0)
             out["moves"].append(move.as_dict())
             roster = [p for p in roster if p.key != d.key] + [a]
             used_add.add(a.key)
@@ -329,21 +412,27 @@ class Engine:
                 )
         return out
 
+    def _hot_shooting(self, p: Proj) -> tuple[int, int, float, float] | None:
+        """(goals, shots, shooting %, normal shooting %) when he's far above his normal rate."""
+        if p.goalie or not p.ref:
+            return None
+        season, _, prior = self.data.skater_lines(p.ref.id, self.as_of)
+        g, s = season.sums.get("goals", 0), season.sums.get("shots", 0)
+        if g < 3 or s <= 0:
+            return None
+        pct = g / s
+        base = 0.10
+        if prior and prior.sums.get("shots", 0) >= 50:
+            base = prior.sums.get("goals", 0) / prior.sums["shots"]
+        return (int(g), int(s), pct, base) if pct >= max(2 * base, 0.20) else None
+
     def regression_watch(self) -> list[dict]:
         """Your players scoring on an unsustainable share of their shots."""
         out = []
         for p in self.me:
-            if p.goalie or not p.ref:
-                continue
-            season, _, prior = self.data.skater_lines(p.ref.id, self.as_of)
-            g, s = season.sums.get("goals", 0), season.sums.get("shots", 0)
-            if g < 3 or s <= 0:
-                continue
-            pct = g / s
-            base = 0.10
-            if prior and prior.sums.get("shots", 0) >= 50:
-                base = prior.sums.get("goals", 0) / prior.sums["shots"]
-            if pct >= max(2 * base, 0.20):
+            hot = self._hot_shooting(p)
+            if hot:
+                g, s, pct, base = hot
                 out.append(
                     {
                         "name": p.name,
@@ -357,6 +446,43 @@ class Engine:
                     }
                 )
         return out
+
+    def sell_high(self) -> list[dict]:
+        """Rostered players whose value is likely at a peak, each with the reason."""
+        out = []
+        for p in self.me:
+            if p.goalie:
+                continue
+            a = self.asset(p)
+            reasons = []
+            hot = self._hot_shooting(p)
+            if hot:
+                g, s, pct, base = hot
+                reasons.append(f"{g} goals on {s} shots ({pct:.0%}) against a normal {base:.0%}")
+            if (a.rostered_change or 0) >= SELL_HIGH_ROSTERED_JUMP:
+                reasons.append(f"% rostered jumped {a.rostered_change:.0f} points to {a.rostered:.0f}%")
+            if a.temporary_pp1:
+                reasons.append(a.temporary_pp1)
+            if reasons:
+                out.append({"name": p.name, "team": p.team, "tag": p.tag, "asset_value": round(a.value, 2),
+                            "reasons": reasons})
+        return sorted(out, key=lambda r: r["asset_value"], reverse=True)
+
+    def breakout_watch(self, limit: int = 8) -> list[dict]:
+        """Free agents whose role is rising while their % rostered is still low."""
+        out = []
+        for fa in self.state.free_agents:
+            p = self.projector.free_agent(fa)
+            if p.goalie or p.avail <= 0:
+                continue
+            a = self.asset(p)
+            rising_role = a.top_role or (a.toi_change or 0) >= 1.5
+            if not rising_role or (a.rostered is not None and a.rostered >= BREAKOUT_MAX_ROSTERED):
+                continue
+            out.append({"name": p.name, "team": p.team, "positions": p.positions, "percent_rostered": a.rostered,
+                        "availability": fa.availability, "asset_value": round(a.value, 2), "age": a.age,
+                        "reasons": a.signals})
+        return sorted(out, key=lambda r: r["asset_value"], reverse=True)[:limit]
 
     def next_week(self) -> dict:
         s = self.league.week_end + timedelta(days=1)
@@ -389,6 +515,9 @@ class Engine:
             "max_weekly_adds": self.league.max_weekly_adds,
             "adds_used": self.league.adds_used,
             "min_goalie_appearances": self.league.min_goalie_appearances,
+            "strategy": self.strategy["strategy"],
+            "strategy_note": self.strategy["note"],
+            "strategy_source": self.strategy["source"],
         }
         if cfg:
             info["week"] = cfg.week_of(self.as_of)[0]
@@ -407,6 +536,8 @@ class Engine:
             "moves": self.plan_moves(max_moves=max_moves),
             "protected": self.protected(),
             "regression_watch": self.regression_watch(),
+            "sell_high": self.sell_high(),
+            "breakout_watch": self.breakout_watch(),
             "next_week": self.next_week(),
             "tags": {p.name: p.tag for p in self.me},
             "notes": self.prep_notes + notes,
@@ -423,8 +554,14 @@ def _round(v: float, key: str) -> float | None:
     return round(v, 1)
 
 
-def _reasons(m: Move, goalie_min: int = 0) -> list[str]:
+def _reasons(m: Move, goalie_min: int = 0, asset_weighted: bool = False) -> list[str]:
     r = []
+    if m.tie_note:
+        r.append(m.tie_note)
+    if asset_weighted and m.asset_add and m.asset_drop:
+        why = ", ".join(m.asset_add.signals[:3]) or "no standout signals"
+        r.append(f"Long-term value {m.asset_add.value:.2f} for {m.add.name} ({why}) vs {m.asset_drop.value:.2f} "
+                 f"for {m.drop.name}")
     if goalie_min and m.short_before is not None and m.short_after is not None:
         if m.short_before - m.short_after >= SHORT_CHANGE:
             r.append(f"Secures the {goalie_min}-appearance goalie minimum: chance of falling short "

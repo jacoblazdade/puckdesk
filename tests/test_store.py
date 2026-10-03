@@ -1,5 +1,6 @@
 """Store + NHL parsing, end to end against an embedded Postgres (pgserver)."""
 
+import json
 import tempfile
 from datetime import date
 
@@ -98,3 +99,41 @@ def test_engine_on_store(store):
     assert dg["matchup"]["games_left"]["me"] == 2.0
     assert store.save_digest("L", dg) > 0
     assert store.latest_digest("L")["league"] == "L"
+
+
+def test_value_signals_in_postgres(store):
+    from puckdesk import keeper as keeper_mod
+
+    store.upsert_players([{"id": 7001, "name": "Signal Kid", "team": "MIN", "position": "R", "birth_date": "2004-02-03"},
+                          {"id": 7002, "name": "Devin Cooley", "team": "CGY", "position": "G"},
+                          {"id": 7003, "name": "Logan Cooley", "team": "UTA", "position": "C"}])
+    # Rows from last season keep a player's current team.
+    store.upsert_players([{"id": 7001, "name": "Signal Kid", "team": "NYI", "position": "R"}], keep_team=True)
+    ref = store.find_player("Signal Kid", "MIN", False)
+    assert ref.team == "MIN" and ref.birth_date == date(2004, 2, 3)
+    assert sorted(store.last_name_teams()["cooley"]) == ["CGY", "UTA"]
+    ice = store.ice_time(7001, date(2026, 10, 22))
+    assert ice.gp == 0 and ice.toi is None and ice.toi_prior is None
+    assert 7001 not in store.players_missing_birth_date(50)
+
+    with store.conn() as c:
+        c.execute("insert into team_lines (team, lines) values ('MIN', %s)",
+                  (json.dumps({"groups": {"f2": ["Signal Kid", "A", "B"], "pp1": ["Signal Kid"], "goalies": ["G"]}}),))
+    assert store.team_roles("MIN")["signal kid"] == {"line": "f2", "pp": "pp1"}
+
+    store.save_rostered(date(2026, 10, 12), [{"name": "Signal Kid", "team": "MIN", "pct": 3}])
+    store.save_rostered(date(2026, 10, 15), [{"name": "Signal Kid", "team": "MIN", "pct": 6}])
+    store.save_rostered(date(2026, 10, 19), [{"name": "Signal Kid", "team": "MIN", "pct": 21}])
+    store.save_rostered(date(2026, 10, 19), [{"name": "Signal Kid", "team": "MIN", "pct": 22}])  # later the same day
+    assert store.rostered_trend("signal kid", date(2026, 10, 19)) == (22.0, 3.0, 7)
+    assert store.rostered_trend("nobody", date(2026, 10, 19)) is None
+
+    with store.conn() as c:
+        c.execute("""insert into articles (source, guid, title, published, content) values
+                     ('DobberHockey', 'k1', 'Top 300 Keeper League Skaters – October 2026', '2026-10-02', %s)""",
+                  (" Oct Player Team DEF? Rating Sep Aug Change \n 210 Signal Kid MIN \xa0 41.7 208 208 -2 \n",))
+    assert store.keeper_ranks()[0]["rank"] == 210 and keeper_mod.TITLE_PATTERN.startswith("Top 300")
+
+    assert store.strategy("Z") is None
+    store.set_strategy("Z", "rebuild", "sell vets")
+    assert store.strategy("Z")["strategy"] == "rebuild" and store.strategy("Z")["note"] == "sell vets"

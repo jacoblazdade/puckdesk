@@ -91,3 +91,39 @@ def test_tools_and_digest(client):
     r = rpc(client, "tools/call", {"name": "set_tags", "arguments": {"league": "L", "tags": [{"name": "Rhys Tolliver", "tag": "core"}]}}).json()
     content = r["result"].get("structuredContent") or json.loads(r["result"]["content"][0]["text"])
     assert content["tags"][0]["tag"] == "core"
+
+
+def call(client, name, args):
+    r = rpc(client, "tools/call", {"name": name, "arguments": args}).json()
+    assert "error" not in r, r
+    res = r["result"]
+    return res.get("structuredContent") or json.loads(res["content"][0]["text"])
+
+
+def test_strategy_and_news_notes(client):
+    out = call(client, "set_strategy", {"league": "477.l.42782", "strategy": "balanced", "note": "Contending after all."})
+    assert out == {"league": "The League", "strategy": "balanced", "strategy_note": "Contending after all."}
+    by_name = {lg["name"]: lg for lg in call(client, "leagues", {})["leagues"]}
+    assert by_name["The League"]["strategy"] == "balanced" and by_name["The League"]["strategy_source"] == "set_strategy"
+    assert by_name["hockey1234123"]["strategy"] == "win_now" and by_name["hockey1234123"]["strategy_source"] == "leagues.toml"
+    call(client, "set_strategy", {"league": "The League", "strategy": "rebuild", "note": ""})
+
+    state = {
+        "league": {"name": "N", "categories": ["SOG", "HIT"], "roster_slots": {"RW": 1},
+                   "week_start": "2026-10-19", "week_end": "2026-10-25", "today": "2026-10-22"},
+        "my_team": {"name": "A", "players": [{"name": "Rhys Tolliver", "team": "SEA", "positions": ["RW"],
+                                              "percent_rostered": 12}]},
+        "opponent": {"name": "B", "players": []},
+    }
+    dg = call(client, "morning_digest", {"state": state})
+    assert dg["league_info"]["strategy"] == "balanced"  # unconfigured leagues
+    assert dg["sell_high"] == [] and dg["breakout_watch"] == [] and dg["news_notes"] == {}
+
+    long_note = " ".join(["word"] * 21)
+    out = call(client, "set_news_notes", {"league": "N", "notes": {"Rhys Tolliver": "Moved to PP1 at practice; add before Monday.",
+                                                                    "Someone Else": long_note}})
+    assert out["stored"] == ["Rhys Tolliver"] and "Someone Else" in out["rejected"]
+    latest = call(client, "latest_digest", {"league": "N"})
+    assert latest["news_notes"] == {"Rhys Tolliver": "Moved to PP1 at practice; add before Monday."}
+    out = call(client, "set_news_notes", {"league": "No such league", "notes": {"X": "y"}})
+    assert out["error"] == "No digest stored yet for this league."

@@ -10,6 +10,10 @@
 # waiver_days from the moment of the drop.
 # min_goalie_appearances: Yahoo's weekly minimum. A team below it can't win
 # any goalie category that week; an appearance means the goalie touched the ice.
+# strategy: win_now (maximize this week's category wins), rebuild (asset value
+# first, this week counts little) or balanced. strategy_note says why; Claude
+# follows both when it explains moves. set_strategy overrides these (stored in
+# Postgres); unconfigured leagues are balanced.
 
 week1_end = 2026-10-04
 
@@ -24,6 +28,8 @@ roster = { C = 2, LW = 2, RW = 2, D = 4, Util = 2, G = 2, BN = 5, "IR+" = 3 }
 max_weekly_adds = 5
 waiver_days = 2
 min_goalie_appearances = 3
+strategy = "win_now"
+strategy_note = "10-team, not a keeper league. Going for the title: maximize weekly category wins."
 
 [[league]]
 name = "The League"
@@ -36,3 +42,5 @@ roster = { C = 2, LW = 2, RW = 2, D = 4, Util = 1, G = 2, BN = 4, "IR+" = 1 }
 max_weekly_adds = 5
 waiver_days = 2
 min_goalie_appearances = 2
+strategy = "rebuild"
+strategy_note = "20-team keeper league, rebuilding this year. Playoffs are very unlikely. Go for high-upside players and early-season breakouts that can be sold for draft picks (e.g. Shabanov)."

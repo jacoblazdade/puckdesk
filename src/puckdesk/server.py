@@ -17,7 +17,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, PlainTextResponse, RedirectResponse, Response
 
 from . import leagues as league_config
-from . import lines, media, names, yahoo
+from . import lines, media, mentions, names, yahoo
 from .config import Settings
 from .engine import Engine, today_eastern
 from .models import FreeAgentIn, LeagueState
@@ -41,6 +41,11 @@ call morning_digest. The latest digest is stored and can be re-read with
 latest_digest. Roster tags live on the server: set_tags / get_tags. League
 arguments take the league name or its Yahoo league key.
 
+Each league has a strategy (win_now, balanced or rebuild) and a note, shown in
+leagues and in every digest's league_info; set_strategy changes them. Follow
+both when choosing and explaining moves. After a digest, read its mentions and
+store a one-line takeaway per player with set_news_notes.
+
 News: search_media searches Keeping Karlsson podcast transcripts (with
 timestamps), DobberHockey articles and Game Day Tweets beat-writer posts. team_lines and lineup_changes
 come from Daily Faceoff line combinations (PP units, lines, goalies, injuries).
@@ -50,6 +55,9 @@ come from Daily Faceoff line combinations (PP units, lines, goalies, injuries).
 class TagIn(BaseModel):
     name: str
     tag: Literal["core", "hold", "stream"]
+
+
+NEWS_NOTE_MAX_WORDS = 20
 
 
 def build(settings: Settings) -> MCPServer:
@@ -66,29 +74,26 @@ def build(settings: Settings) -> MCPServer:
         """Full morning digest: matchup outlook, add/drop moves within the add budget,
         cold Core players worth holding, hot shooters due to cool off, and next week's schedule.
         The result is stored and can be re-read with latest_digest."""
+        _snapshot(state)
         eng = Engine(store, state)
         dg = eng.digest(max_moves=max_moves)
         try:
-            dg.update(_news(eng, dg))
+            dg.update(mentions.digest_news(store, eng, dg))
         except Exception as e:  # noqa: BLE001 - news is a bonus; the digest still stands
             dg["notes"] = dg.get("notes", []) + [f"News unavailable: {e}"]
+        dg["news_notes"] = {}
         dg["digest_id"] = store.save_digest(eng.league.name, dg)
         return dg
 
-    def _news(eng: Engine, dg: dict) -> dict:
-        """Lineup changes and podcast/article mentions for players that matter this morning."""
-        adds = [m["add"]["name"] for m in dg["moves"]["moves"]]
-        mine = [p.name for p in eng.me]
-        interest = {names.person(n) for n in mine + adds + [fa.name for fa in eng.state.free_agents]}
-        teams = sorted({p.team for p in eng.me} | {m["add"]["team"] for m in dg["moves"]["moves"]})
-        changes = [c for c in lines.recent_changes(store, days=2, teams=teams) if names.person(c["player"]) in interest]
-        mentions = {}
-        for n in adds + mine:
-            last = n.split(" ")[-1]
-            hits = media.search(store, f'"{n}" OR "{last}"', days=10, limit=3)
-            if hits:
-                mentions[n] = hits
-        return {"lineup_changes": changes, "mentions": mentions}
+    def _snapshot(state: LeagueState) -> None:
+        """Today's Yahoo-wide % rostered for everyone in the state, for the trend signal."""
+        players = state.free_agents + state.my_team.players + state.opponent.players
+        rows = [{"name": p.name, "team": p.team, "pct": p.percent_rostered} for p in players if p.percent_rostered is not None]
+        if rows:
+            try:
+                store.save_rostered(today_eastern(), rows)
+            except Exception:  # noqa: BLE001 - a snapshot never blocks the answer
+                pass
 
     @mcp.tool(annotations=READ)
     def leagues() -> dict:
@@ -100,8 +105,39 @@ def build(settings: Settings) -> MCPServer:
         for cfg in league_config.load():
             week, start, end = cfg.week_of(today)
             row = stored.pop(cfg.name, {"name": cfg.name, "last_digest": None})
-            out.append({**row, **cfg.summary(), "week": week, "week_start": str(start), "week_end": str(end)})
-        return {"leagues": out + list(stored.values())}
+            st = league_config.strategy_for(cfg.name, store.strategy(cfg.name))
+            out.append({**row, **cfg.summary(), "week": week, "week_start": str(start), "week_end": str(end),
+                        "strategy": st["strategy"], "strategy_note": st["note"], "strategy_source": st["source"]})
+        for name, row in stored.items():
+            st = league_config.strategy_for(name, store.strategy(name))
+            out.append({**row, "strategy": st["strategy"], "strategy_note": st["note"], "strategy_source": st["source"]})
+        return {"leagues": out}
+
+    @mcp.tool(annotations=WRITE)
+    def set_strategy(league: str, strategy: Literal["win_now", "balanced", "rebuild"], note: str = "") -> dict:
+        """Set a league's strategy and the note behind it. win_now: maximize this week's category wins.
+        rebuild: long-term asset value first (age, role, trends, keeper ranks); this week counts little.
+        balanced: in between. Overrides leagues.toml; league is the name or Yahoo league key."""
+        league = league_config.canonical(league)
+        store.set_strategy(league, strategy, note.strip() or None)
+        st = league_config.strategy_for(league, store.strategy(league))
+        return {"league": league, "strategy": st["strategy"], "strategy_note": st["note"]}
+
+    @mcp.tool(annotations=WRITE)
+    def set_news_notes(league: str, notes: dict[str, str]) -> dict:
+        """Store one-line news takeaways on the league's latest digest, keyed by player name
+        (at most 20 words each). latest_digest returns them as news_notes."""
+        league = league_config.canonical(league)
+        ok = {k.strip(): " ".join(v.split()) for k, v in notes.items() if k.strip() and v.strip()}
+        too_long = {k: len(v.split()) for k, v in ok.items() if len(v.split()) > NEWS_NOTE_MAX_WORDS}
+        ok = {k: v for k, v in ok.items() if k not in too_long}
+        digest_id = store.set_news_notes(league, ok) if ok else None
+        out: dict = {"league": league, "stored": sorted(ok) if digest_id else [], "digest_id": digest_id}
+        if too_long:
+            out["rejected"] = {k: f"{n} words; keep it to {NEWS_NOTE_MAX_WORDS}" for k, n in too_long.items()}
+        if ok and digest_id is None:
+            out["error"] = "No digest stored yet for this league."
+        return out
 
     @mcp.tool(annotations=READ)
     def latest_digest(league: str) -> dict:
@@ -110,16 +146,20 @@ def build(settings: Settings) -> MCPServer:
         dg = store.latest_digest(league)
         if dg is None:
             return {"league": league, "error": "No digest stored yet for this league.", "known_leagues": store.leagues()}
+        dg.setdefault("news_notes", {})
         return dg
 
     @mcp.tool(annotations=READ)
     def matchup_outlook(state: LeagueState) -> dict:
         """Projected result per category for the rest of the week, with win chances."""
+        _snapshot(state)
         return Engine(store, state).matchup()
 
     @mcp.tool(annotations=READ)
     def plan_moves(state: LeagueState, max_moves: int = 3) -> dict:
-        """Best add/drop moves for this week. Drops only Stream players, or Hold players for a clear upgrade."""
+        """Best add/drop moves for this week, scored by the league's strategy. Drops only Stream players,
+        or Hold players for a clear upgrade."""
+        _snapshot(state)
         return Engine(store, state).plan_moves(max_moves=max_moves)
 
     @mcp.tool(annotations=READ)
@@ -308,13 +348,17 @@ LEAGUE_STATE_GUIDE = {
         "league.name": "hockey1234123 or The League (the Yahoo league key works too). Nothing else needed: "
         "categories, roster, add limit, waivers, week dates and the goalie minimum come from the server's config.",
         "league.today": "Optional; defaults to today's date in US Eastern time.",
+        "strategy": "Not part of the state: each league's strategy (win_now, balanced, rebuild) and note come from "
+        "the server (leagues, set_strategy) and appear in the digest's league_info.",
         "my_team.totals / opponent.totals": "Every category value from get_matchups, keyed by Yahoo's display "
         "name (G, A, SOG, PPP, HIT, BLK, PIM, FW, W, GAA, SV, SV%, SHO). Also pass GA and SA, which Yahoo shows "
         "as display-only stats: the server derives goalie minutes as GA x 60 / GAA and saves as SA - GA.",
         "my_team.goalie_appearances / opponent.goalie_appearances": "Goalie appearances so far this week if the "
         "matchup shows them (goalie GP). Leave out otherwise; the server counts them from NHL box scores.",
         "players[]": "From get_roster: name, team (NHL abbreviation), positions (eligible: C, LW, RW, D, G), "
-        "slot (today's lineup slot: C, LW, RW, D, Util, G, BN, IR+) and status (DTD, O, IR, IR-LT, NA or empty).",
+        "slot (today's lineup slot: C, LW, RW, D, Util, G, BN, IR+), status (DTD, O, IR, IR-LT, NA or empty) "
+        "and percent_rostered if Flaim shows it. Every % rostered passed in is stored as a daily snapshot; "
+        "its trend feeds the long-term value of players.",
         "free_agents[]": "From get_free_agents: about 40 skaters across C, LW, RW and D plus 8 goalies, with "
         "percent_rostered (Yahoo-wide % rostered). Leave availability out; recent drops in transactions mark "
         "waiver players and their clearing time.",

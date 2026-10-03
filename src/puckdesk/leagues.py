@@ -15,6 +15,8 @@ from datetime import date, timedelta
 from pathlib import Path
 
 REPO_FILE = Path(__file__).resolve().parents[2] / "leagues.toml"
+STRATEGIES = ("win_now", "balanced", "rebuild")
+DEFAULT_STRATEGY = "balanced"
 
 
 @dataclass(frozen=True)
@@ -31,6 +33,8 @@ class LeagueConfig:
     week1_end: date
     keeper: bool = False
     aliases: list[str] = field(default_factory=list)
+    strategy: str = DEFAULT_STRATEGY
+    strategy_note: str = ""
 
     def week_of(self, d: date) -> tuple[int, date, date]:
         """(week number, Monday, Sunday) of the scoring week that contains `d`."""
@@ -60,6 +64,8 @@ class LeagueConfig:
             "max_weekly_adds": self.max_weekly_adds,
             "waivers": f"{self.waiver_days}-day continual rolling",
             "min_goalie_appearances": self.min_goalie_appearances,
+            "strategy": self.strategy,
+            "strategy_note": self.strategy_note,
         }
 
 
@@ -84,9 +90,27 @@ def load(path: str | os.PathLike | None = None) -> list[LeagueConfig]:
                 week1_end=lg.get("week1_end", raw["week1_end"]),
                 keeper=bool(lg.get("keeper", False)),
                 aliases=list(lg.get("aliases", [])),
+                strategy=_strategy(lg.get("strategy", DEFAULT_STRATEGY), lg["name"]),
+                strategy_note=lg.get("strategy_note", ""),
             )
         )
     return out
+
+
+def _strategy(value: str, league: str) -> str:
+    if value not in STRATEGIES:
+        raise ValueError(f"leagues.toml: {league} has strategy {value!r}; use one of {', '.join(STRATEGIES)}")
+    return value
+
+
+def strategy_for(league: str, stored: dict | None = None) -> dict:
+    """The league's strategy: a stored override (set_strategy) beats leagues.toml; otherwise balanced."""
+    if stored:
+        return {"strategy": stored["strategy"], "note": stored.get("note") or "", "source": "set_strategy"}
+    cfg = find(league)
+    if cfg:
+        return {"strategy": cfg.strategy, "note": cfg.strategy_note, "source": "leagues.toml"}
+    return {"strategy": DEFAULT_STRATEGY, "note": "", "source": "default"}
 
 
 def find(name_or_key: str | None, configs: list[LeagueConfig] | None = None) -> LeagueConfig | None:

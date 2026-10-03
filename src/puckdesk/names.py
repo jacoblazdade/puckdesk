@@ -44,6 +44,12 @@ def person(name: str) -> str:
     return s
 
 
+def last(name: str) -> str:
+    """Normalised last name: 'Pierre-Luc Dubois' -> 'dubois', 'J.T. Miller' -> 'miller'."""
+    parts = person(name).split(" ")
+    return parts[-1] if parts else ""
+
+
 def initial_key(name: str) -> str:
     """'A. Korhonen' and 'Aleksi Korhonen' share the key 'a korhonen'."""
     parts = person(name).split(" ")

@@ -43,6 +43,18 @@ class PlayerRef:
     name: str
     team: str
     position: str  # C, L, R, D or G
+    birth_date: date | None = None
+
+
+@dataclass
+class IceTime:
+    """Ice time per game in minutes, this season and last."""
+
+    gp: int = 0
+    toi: float | None = None
+    pp_toi: float | None = None
+    toi_prior: float | None = None
+    pp_toi_prior: float | None = None
 
 
 class DataSource(Protocol):
@@ -74,6 +86,33 @@ class DataSource(Protocol):
         """NHL games the goalie got into (any ice time) from start to end, inclusive."""
         ...
 
+    # Value signals (value.py). Optional: missing methods mean no signal.
+    def team_roles(self, team: str) -> dict[str, dict]:
+        """Daily Faceoff roles keyed by normalised name: {"line": "f1".."f4"/"d1".."d3", "pp": "pp1"/"pp2"}."""
+        ...
+
+    def ice_time(self, player_id: int, as_of: date) -> IceTime: ...
+
+    def rostered_trend(self, norm_name: str, as_of: date) -> tuple[float, float, int] | None:
+        """(% rostered now, % about a week earlier, days between) from the daily snapshots."""
+        ...
+
+    def keeper_ranks(self) -> list[dict]:
+        """Dobber's latest Top 300 Keeper League table: [{rank, name, team, defense, rating, change}]."""
+        ...
+
+    def lineup_posts(self, days: int) -> list[dict]:
+        """Recent Game Day Tweets lineup posts: [{account, text, posted_at}]."""
+        ...
+
+    def last_name_teams(self) -> dict[str, list[str]]:
+        """Teams of the current NHL players with each normalised last name (one entry per player)."""
+        ...
+
+    def strategy(self, league: str) -> dict | None:
+        """Stored strategy override for a league: {"strategy", "note"}."""
+        ...
+
 
 class MemoryData:
     """A small in-memory DataSource for tests and what-if experiments."""
@@ -89,10 +128,16 @@ class MemoryData:
         self._tags: dict[str, dict[str, str]] = {}
         self.hints: list[dict] = []
         self.appearances: dict[int, list[date]] = {}
+        self.roles: dict[str, dict[str, dict]] = {}
+        self.ice: dict[int, IceTime] = {}
+        self.rostered: dict[str, tuple[float, float, int]] = {}
+        self.keeper: list[dict] = []
+        self.posts: list[dict] = []
+        self.strategies: dict[str, dict] = {}
 
     # --- building ---------------------------------------------------------
-    def add_player(self, pid: int, name: str, team: str, position: str) -> None:
-        self.players[pid] = PlayerRef(pid, name, names.team(team), position)
+    def add_player(self, pid: int, name: str, team: str, position: str, birth_date: date | None = None) -> None:
+        self.players[pid] = PlayerRef(pid, name, names.team(team), position, birth_date)
 
     def add_games(self, team: str, dates: list[date]) -> None:
         self.schedule.setdefault(names.team(team), set()).update(dates)
@@ -147,3 +192,27 @@ class MemoryData:
 
     def goalie_appearances(self, player_id: int, start: date, end: date) -> int:
         return sum(1 for d in self.appearances.get(player_id, []) if start <= d <= end)
+
+    def team_roles(self, team: str) -> dict[str, dict]:
+        return self.roles.get(names.team(team), {})
+
+    def ice_time(self, player_id: int, as_of: date) -> IceTime:
+        return self.ice.get(player_id, IceTime())
+
+    def rostered_trend(self, norm_name: str, as_of: date) -> tuple[float, float, int] | None:
+        return self.rostered.get(norm_name)
+
+    def keeper_ranks(self) -> list[dict]:
+        return self.keeper
+
+    def lineup_posts(self, days: int) -> list[dict]:
+        return self.posts
+
+    def last_name_teams(self) -> dict[str, list[str]]:
+        out: dict[str, list[str]] = {}
+        for p in self.players.values():
+            out.setdefault(names.last(p.name), []).append(p.team)
+        return out
+
+    def strategy(self, league: str) -> dict | None:
+        return self.strategies.get(league)

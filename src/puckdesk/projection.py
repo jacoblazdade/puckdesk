@@ -107,8 +107,10 @@ class Projector:
         dates = self.data.team_dates(team, s, e)
         status = (p.status or "").upper()
         avail = 0.0 if p.is_out else (DTD_PLAY_PROB if status in {"DTD", "GTD", "Q"} else 1.0)
-        if p.in_ir_slot and not p.is_out:
-            notes.append(f"in the {p.slot} slot without an injury status; move him to an active slot to play")
+        if p.in_ir_slot and not status:
+            # IR+ takes DTD, O, IR and IR-LT, so only a blank status means he's healthy again.
+            notes.append(f"in the {p.slot} slot with no injury status: reminder to move him back to an active slot "
+                         "now that he's healthy")
 
         rates = grates = None
         if goalie:

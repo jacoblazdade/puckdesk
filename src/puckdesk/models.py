@@ -34,6 +34,7 @@ class PlayerIn(BaseModel):
         "Stored tags on the server are used when this is empty.",
     )
     nhl_id: int | None = Field(default=None, description="NHL player id if known")
+    percent_rostered: float | None = Field(default=None, description="Yahoo-wide % rostered (get_free_agents, or get_roster if shown)")
     rank: int | None = Field(default=None, description="Fantasy site rank, if available")
     preseason_rank: int | None = None
 
@@ -53,7 +54,6 @@ class PlayerIn(BaseModel):
 class FreeAgentIn(PlayerIn):
     availability: Literal["FA", "W"] = Field(default="FA", description="FA = free agent, W = on waivers")
     waiver_clears: date | None = Field(default=None, description="Date the player clears waivers, if on waivers")
-    percent_rostered: float | None = Field(default=None, description="Yahoo-wide % rostered, from get_free_agents")
 
 
 class TeamIn(BaseModel):

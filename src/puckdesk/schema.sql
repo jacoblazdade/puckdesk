@@ -192,3 +192,25 @@ create table if not exists goalie_guesses (
     fetched_at  timestamptz not null default now(),
     primary key (game_date, norm_name)
 );
+
+-- Birth dates from the NHL roster API, for age-based upside.
+alter table players add column if not exists birth_date date;
+
+-- Strategy per league (win_now, balanced, rebuild). leagues.toml has the
+-- defaults; rows here are overrides set with the set_strategy tool.
+create table if not exists league_strategy (
+    league      text primary key,
+    strategy    text not null check (strategy in ('win_now', 'balanced', 'rebuild')),
+    note        text,
+    updated_at  timestamptz not null default now()
+);
+
+-- Yahoo-wide % rostered, one snapshot per player and day, from every LeagueState.
+create table if not exists rostered_snapshots (
+    snap_date   date not null,
+    norm_name   text not null,
+    name        text not null,
+    team        text,
+    pct         real not null,
+    primary key (snap_date, norm_name)
+);

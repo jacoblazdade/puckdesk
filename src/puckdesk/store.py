@@ -11,9 +11,9 @@ import psycopg
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
-from . import names
+from . import keeper, names
 from .categories import SKATER_STATS
-from .data import GoalieLine, PlayerRef, StatLine
+from .data import GoalieLine, IceTime, PlayerRef, StatLine
 
 RECENT_DAYS = 14
 
@@ -32,6 +32,7 @@ def previous_season(season: int) -> int:
 class Store:
     def __init__(self, dsn: str):
         self.dsn = dsn
+        self._keeper_cache: tuple[int | None, list[dict]] = (None, [])
 
     def conn(self) -> psycopg.Connection:
         return psycopg.connect(self.dsn, row_factory=dict_row, autocommit=True)
@@ -42,20 +43,23 @@ class Store:
             c.execute(sql)
 
     # --- writes ---------------------------------------------------------------
-    def upsert_players(self, rows: Iterable[dict]) -> int:
+    def upsert_players(self, rows: Iterable[dict], keep_team: bool = False) -> int:
+        """keep_team: an existing player's team stays (for rows from past seasons)."""
+        team_sql = "coalesce(players.team, excluded.team)" if keep_team else "coalesce(excluded.team, players.team)"
+        sql = f"""insert into players (id, full_name, norm_name, initial_key, team, position, birth_date, updated_at)
+                  values (%s, %s, %s, %s, %s, %s, %s, now())
+                  on conflict (id) do update set full_name = excluded.full_name,
+                    norm_name = excluded.norm_name, initial_key = excluded.initial_key, team = {team_sql},
+                    position = coalesce(excluded.position, players.position),
+                    birth_date = coalesce(excluded.birth_date, players.birth_date), updated_at = now()"""
         n = 0
         with self.conn() as c, c.cursor() as cur:
             for r in rows:
                 cur.execute(
-                    """insert into players (id, full_name, norm_name, initial_key, team, position, updated_at)
-                       values (%s, %s, %s, %s, %s, %s, now())
-                       on conflict (id) do update set full_name = excluded.full_name,
-                         norm_name = excluded.norm_name, initial_key = excluded.initial_key,
-                         team = coalesce(excluded.team, players.team),
-                         position = coalesce(excluded.position, players.position), updated_at = now()""",
+                    sql,
                     (
                         r["id"], r["name"], names.person(r["name"]), names.initial_key(r["name"]),
-                        names.team(r.get("team")) or None, r.get("position"),
+                        names.team(r.get("team")) or None, r.get("position"), r.get("birth_date"),
                     ),
                 )
                 n += 1
@@ -164,13 +168,14 @@ class Store:
         with self.conn() as c:
             for column, value in (("norm_name", names.person(name)), ("initial_key", names.initial_key(name))):
                 rows = c.execute(
-                    f"select id, full_name, team, position from players where {column} = %s and {pos_clause}", (value,)
+                    f"select id, full_name, team, position, birth_date from players where {column} = %s and {pos_clause}",
+                    (value,),
                 ).fetchall()
                 if len(rows) > 1:
                     rows = [r for r in rows if r["team"] == t] or rows
                 if len(rows) == 1:
                     r = rows[0]
-                    return PlayerRef(r["id"], r["full_name"], r["team"] or t, r["position"] or "")
+                    return PlayerRef(r["id"], r["full_name"], r["team"] or t, r["position"] or "", r["birth_date"])
         return None
 
     def team_dates(self, team: str, start: date, end: date) -> list[date]:
@@ -283,6 +288,173 @@ class Store:
                 (player_id, start, end),
             ).fetchone()
         return int(row["n"])
+
+    def players_missing_birth_date(self, limit: int) -> list[int]:
+        """Players with stats this season or last but no birth date, skaters with the most games first."""
+        with self.conn() as c:
+            rows = c.execute(
+                """select p.id from players p
+                   left join (select player_id, count(*) n from skater_games group by player_id) g on g.player_id = p.id
+                   left join (select player_id, max(gp) gp from season_totals group by player_id) t on t.player_id = p.id
+                   where p.birth_date is null and (g.n is not null or t.gp is not null)
+                   order by coalesce(g.n, 0) desc, coalesce(t.gp, 0) desc limit %s""",
+                (limit,),
+            ).fetchall()
+        return [r["id"] for r in rows]
+
+    def set_birth_date(self, player_id: int, birth: str | date) -> None:
+        with self.conn() as c:
+            c.execute("update players set birth_date = %s where id = %s", (birth, player_id))
+
+    # --- value signals -----------------------------------------------------------
+    def team_roles(self, team: str) -> dict[str, dict]:
+        with self.conn() as c:
+            row = c.execute(
+                "select lines from team_lines where team = %s order by fetched_at desc limit 1", (names.team(team),)
+            ).fetchone()
+        roles: dict[str, dict] = {}
+        for group, players in ((row["lines"].get("groups") or {}) if row else {}).items():
+            g = group.lower()
+            if not (g[:1] in ("f", "d") and g[1:].isdigit()) and g not in ("pp1", "pp2"):
+                continue
+            for name in players:
+                r = roles.setdefault(names.person(name), {"line": None, "pp": None})
+                if g.startswith("pp"):
+                    r["pp"] = r["pp"] or g
+                else:
+                    r["line"] = r["line"] or g
+        return roles
+
+    def ice_time(self, player_id: int, as_of: date) -> IceTime:
+        season = season_of(as_of)
+        with self.conn() as c:
+            now = c.execute(
+                """select count(*) gp, avg(toi_sec) / 60.0 toi, avg(pp_toi_sec) / 60.0 pp_toi from skater_games
+                   where player_id = %s and season = %s and game_date < %s""",
+                (player_id, season, as_of),
+            ).fetchone()
+            prior = c.execute(
+                "select stats from season_totals where player_id = %s and season = %s and kind = 'skater'",
+                (player_id, previous_season(season)),
+            ).fetchone()
+        st = prior["stats"] if prior else {}
+        toi_p, pp_p = st.get("toi_per_game_sec"), st.get("pp_toi_per_game_sec")
+        return IceTime(
+            gp=int(now["gp"]),
+            toi=float(now["toi"]) if now["toi"] is not None else None,
+            pp_toi=float(now["pp_toi"]) if now["pp_toi"] is not None else None,
+            toi_prior=toi_p / 60.0 if toi_p else None,
+            pp_toi_prior=pp_p / 60.0 if pp_p is not None else None,
+        )
+
+    def save_rostered(self, day: date, rows: list[dict]) -> int:
+        """Daily % rostered snapshot: rows of {name, team, pct}; the latest value of the day wins."""
+        n = 0
+        with self.conn() as c, c.cursor() as cur:
+            for r in rows:
+                if r.get("pct") is None:
+                    continue
+                cur.execute(
+                    """insert into rostered_snapshots (snap_date, norm_name, name, team, pct) values (%s, %s, %s, %s, %s)
+                       on conflict (snap_date, norm_name) do update set pct = excluded.pct, team = excluded.team""",
+                    (day, names.person(r["name"]), r["name"], names.team(r.get("team")) or None, float(r["pct"])),
+                )
+                n += 1
+        return n
+
+    def rostered_trend(self, norm_name: str, as_of: date) -> tuple[float, float, int] | None:
+        with self.conn() as c:
+            rows = c.execute(
+                """select snap_date, pct from rostered_snapshots where norm_name = %s
+                   and snap_date between %s and %s order by snap_date""",
+                (norm_name, as_of - timedelta(days=14), as_of),
+            ).fetchall()
+        if len(rows) < 2:
+            return None
+        last = rows[-1]
+        # Compare with the snapshot nearest a week before the latest one (at least 2 days back).
+        older = [r for r in rows if (last["snap_date"] - r["snap_date"]).days >= 2]
+        if not older:
+            return None
+        base = min(older, key=lambda r: abs((last["snap_date"] - r["snap_date"]).days - 7))
+        return float(last["pct"]), float(base["pct"]), (last["snap_date"] - base["snap_date"]).days
+
+    def keeper_ranks(self) -> list[dict]:
+        with self.conn() as c:
+            row = c.execute(
+                "select id, content from articles where title ilike %s order by published desc nulls last limit 1",
+                (keeper.TITLE_PATTERN,),
+            ).fetchone()
+        if not row:
+            return []
+        if self._keeper_cache[0] != row["id"]:
+            self._keeper_cache = (row["id"], keeper.parse(row["content"] or ""))
+        return self._keeper_cache[1]
+
+    def lineup_posts(self, days: int) -> list[dict]:
+        with self.conn() as c:
+            rows = c.execute(
+                """select account, text, posted_at from posts where kind = 'lines'
+                   and posted_at >= now() - make_interval(days => %s) order by posted_at desc""",
+                (days,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def last_name_teams(self) -> dict[str, list[str]]:
+        with self.conn() as c:
+            rows = c.execute("select full_name, team from players where team is not null").fetchall()
+        out: dict[str, list[str]] = {}
+        for r in rows:
+            out.setdefault(names.last(r["full_name"]), []).append(r["team"])
+        return out
+
+    def media_texts(self, query: str, days: int, limit: int = 40) -> list[dict]:
+        """Full texts of podcast windows, articles and posts that match a search, newest first."""
+        sql = """
+        with q as (select websearch_to_tsquery('english', %(q)s) as query)
+        select * from (
+          select 'podcast' as kind, e.podcast as source, e.title, e.published as at, w.start_sec, e.id as ref,
+                 e.link, w.text
+            from transcript_windows w join podcast_episodes e on e.id = w.episode_id, q
+           where w.tsv @@ q.query and e.published >= now() - make_interval(days => %(days)s)
+          union all
+          select 'article', a.source, a.title, a.published, null, a.id, a.link, a.content
+            from articles a, q
+           where a.tsv @@ q.query and a.published >= now() - make_interval(days => %(days)s)
+          union all
+          select 'post', p.account, left(p.text, 80), p.posted_at, null, null, p.url, p.text
+            from posts p, q
+           where p.tsv @@ q.query and p.posted_at >= now() - make_interval(days => %(days)s)
+        ) hits order by at desc nulls last limit %(limit)s
+        """
+        with self.conn() as c:
+            return [dict(r) for r in c.execute(sql, {"q": query, "days": days, "limit": limit}).fetchall()]
+
+    # --- strategy and news notes ---------------------------------------------------
+    def strategy(self, league: str) -> dict | None:
+        with self.conn() as c:
+            row = c.execute("select strategy, note, updated_at from league_strategy where league = %s", (league,)).fetchone()
+        return {"strategy": row["strategy"], "note": row["note"], "updated_at": row["updated_at"].isoformat()} if row else None
+
+    def set_strategy(self, league: str, strategy: str, note: str | None) -> None:
+        with self.conn() as c:
+            c.execute(
+                """insert into league_strategy (league, strategy, note) values (%s, %s, %s)
+                   on conflict (league) do update set strategy = excluded.strategy, note = excluded.note, updated_at = now()""",
+                (league, strategy, note),
+            )
+
+    def set_news_notes(self, league: str, notes: dict[str, str]) -> int | None:
+        """Merge one-line takeaways into the latest digest's news_notes; returns the digest id."""
+        with self.conn() as c:
+            row = c.execute(
+                """update digests set payload = jsonb_set(payload, '{news_notes}',
+                       coalesce(payload->'news_notes', '{}'::jsonb) || %s::jsonb)
+                   where id = (select id from digests where league = %s order by created_at desc limit 1)
+                   returning id""",
+                (Jsonb(notes), league),
+            ).fetchone()
+        return row["id"] if row else None
 
     def tag_list(self, league: str) -> list[dict]:
         with self.conn() as c:
