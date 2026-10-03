@@ -1,0 +1,38 @@
+# Jacob's Yahoo leagues. Flaim (the Yahoo connector in Claude) doesn't return
+# league settings, waiver rules or week dates, so they live here and override
+# whatever a LeagueState says for a league listed below.
+#
+# Weeks run Monday to Sunday. Week 1 ends on week1_end; every later week is
+# the seven days after the one before.
+# Categories use Yahoo's display names (SHO, SV%, ...).
+# Roster positions are counts per slot; IR+ slots don't play.
+# Waivers: continual rolling, so a dropped player is on waivers for
+# waiver_days from the moment of the drop.
+# min_goalie_appearances: Yahoo's weekly minimum. A team below it can't win
+# any goalie category that week; an appearance means the goalie touched the ice.
+
+week1_end = 2026-10-04
+
+[[league]]
+name = "hockey1234123"
+key = "477.l.60199"
+team_id = 6
+team_name = "Kapri's Papi"
+keeper = false
+categories = ["G", "A", "PPP", "SOG", "HIT", "BLK", "W", "GAA", "SV%", "SHO"]
+roster = { C = 2, LW = 2, RW = 2, D = 4, Util = 2, G = 2, BN = 5, "IR+" = 3 }
+max_weekly_adds = 5
+waiver_days = 2
+min_goalie_appearances = 3
+
+[[league]]
+name = "The League"
+key = "477.l.42782"
+team_id = 6
+team_name = "Dude Where's Makar?"
+keeper = true
+categories = ["G", "A", "PIM", "PPP", "SOG", "FW", "HIT", "BLK", "W", "GAA", "SV", "SV%", "SHO"]
+roster = { C = 2, LW = 2, RW = 2, D = 4, Util = 1, G = 2, BN = 4, "IR+" = 1 }
+max_weekly_adds = 5
+waiver_days = 2
+min_goalie_appearances = 2

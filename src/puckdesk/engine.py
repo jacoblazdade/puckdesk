@@ -10,13 +10,15 @@ import numpy as np
 
 from . import categories
 from .data import DataSource
-from .models import LeagueState
+from .leaguestate import complete
+from .models import LeagueState, TeamIn
 from .projection import Proj, Projector, Usage
-from .simulate import CatResult, compare, simulate_team
+from .simulate import CatResult, GoalieMinimum, compare, simulate_team
 
 EASTERN = ZoneInfo("America/New_York")
 LIGHT_NIGHT_MAX_GAMES = 8
 MIN_GAIN = 0.03  # expected category wins; below this a move is noise
+SHORT_CHANGE = 0.05  # change in the chance of missing the goalie minimum worth mentioning
 RESERVE_BASE = 0.10  # value of keeping an add in hand on the first day of the week
 
 
@@ -29,6 +31,7 @@ class Evaluation:
     results: list[CatResult]
     expected: float
     usage: Usage
+    p_short: float | None = None  # chance of ending the week below the goalie minimum
 
 
 @dataclass
@@ -42,6 +45,8 @@ class Move:
     next_week_drop: int
     drop_games_left: int
     uses_last_add: bool
+    short_before: float | None = None
+    short_after: float | None = None
     reasons: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict:
@@ -74,24 +79,51 @@ class Move:
             "category_changes": changes,
             "uses_last_add": self.uses_last_add,
             "confirm_goalie_start": bool(self.add.goalie and self.add.grates and self.add.grates.start_share < 0.9),
+            "goalie_minimum_risk": None if self.short_before is None else {
+                "before": round(self.short_before, 3), "after": round(self.short_after, 3)},
             "reasons": self.reasons,
         }
 
 
 class Engine:
-    def __init__(self, data: DataSource, state: LeagueState, n_sims: int = 10000, seed: int = 7):
+    def __init__(self, data: DataSource, state: LeagueState, n_sims: int = 10000, seed: int = 7,
+                 now: datetime | None = None):
         self.data = data
-        self.state = state
-        self.league = state.league
-        self.as_of = self.league.today or today_eastern()
+        self.state, self.prep_notes = complete(state, now)
+        self.league = self.state.league
+        self.as_of = self.league.today or (now.date() if now else today_eastern())
         self.cats = [categories.resolve(k) for k in self.league.categories]
+        self.labels = {categories.resolve(k).key: k for k in self.league.categories}  # SO -> SHO, as Yahoo shows it
         self.skater_cats = [c for c in self.cats if c.kind == "skater"]
         self.n_sims = n_sims
         self.seed = seed
         self.projector = Projector(data, self.league, self.as_of, self.skater_cats)
-        self.me = [self.projector.player(p) for p in state.my_team.players]
-        self.opp = [self.projector.player(p) for p in state.opponent.players]
+        self.me = [self.projector.player(p) for p in self.state.my_team.players]
+        self.opp = [self.projector.player(p) for p in self.state.opponent.players]
         self._opp_cache: dict[int, tuple] = {}
+        self.goalie_min: GoalieMinimum | None = None
+        self.apps_source = None
+        if self.league.min_goalie_appearances and any(c.kind == "goalie" for c in self.cats):
+            me, src_me = self._appearances(self.state.my_team, self.me)
+            opp, src_opp = self._appearances(self.state.opponent, self.opp)
+            self.goalie_min = GoalieMinimum(self.league.min_goalie_appearances, me, opp)
+            self.apps_source = {"me": src_me, "opp": src_opp}
+
+    def _appearances(self, team: TeamIn, projs: list[Proj]) -> tuple[float, str]:
+        """Goalie appearances banked this week: from the matchup if given, else NHL box scores."""
+        if team.goalie_appearances is not None:
+            apps, source = float(team.goalie_appearances), "matchup"
+        elif hasattr(self.data, "goalie_appearances"):
+            until = self.as_of - timedelta(days=1)
+            apps = float(sum(self.data.goalie_appearances(p.ref.id, self.league.week_start, until)
+                             for p in projs if p.goalie and p.ref))
+            source = "NHL box scores for the current goalies"
+        else:
+            return 0.0, "unknown"
+        # With no goals against there's no GAA to derive minutes from; count 60 per appearance.
+        if apps and "MIN" not in team.totals and "GS" not in team.totals:
+            team.totals["MIN"] = 60.0 * apps
+        return apps, source
 
     # --- evaluation -------------------------------------------------------------
     def _opp(self, n: int):
@@ -107,8 +139,34 @@ class Engine:
         rng = np.random.default_rng(self.seed)  # same draws every call, so moves compare fairly
         sim = simulate_team({p.key: p for p in roster}, usage, self.skater_cats, n, rng)
         _, opp_sim = self._opp(n)
-        results = compare(self.cats, self.state.my_team.totals, sim, self.state.opponent.totals, opp_sim)
-        return Evaluation(results, sum(r.expected for r in results), usage)
+        results = compare(self.cats, self.state.my_team.totals, sim, self.state.opponent.totals, opp_sim, self.goalie_min)
+        for r in results:
+            r.key = self.labels.get(r.key, r.key)
+        p_short = None
+        if self.goalie_min:
+            p_short = float(self.goalie_min.short(self.goalie_min.banked_me, sim).mean())
+        return Evaluation(results, sum(r.expected for r in results), usage, p_short)
+
+    def goalie_minimum(self, ev: Evaluation) -> dict | None:
+        if not self.goalie_min:
+            return None
+        g = self.goalie_min
+        opp_usage, opp_sim = self._opp(self.n_sims)
+        return {
+            "required": g.required,
+            "me": {
+                "so_far": g.banked_me,
+                "projected": round(g.banked_me + sum(p for _, p, _, _ in ev.usage.goalie_games), 1),
+                "p_short": round(ev.p_short, 3),
+            },
+            "opp": {
+                "so_far": g.banked_opp,
+                "projected": round(g.banked_opp + sum(p for _, p, _, _ in opp_usage.goalie_games), 1),
+                "p_short": round(float(g.short(g.banked_opp, opp_sim).mean()), 3),
+            },
+            "so_far_from": self.apps_source,
+            "rule": "A team below the minimum can't win any goalie category this week.",
+        }
 
     def matchup(self) -> dict:
         ev = self.evaluate(self.me)
@@ -137,6 +195,7 @@ class Engine:
                 "opp": round(sum(p for _, p, _, _ in opp_usage.goalie_games), 1),
             },
             "window": {"from": str(self.as_of), "to": str(self.league.week_end)},
+            "goalie_minimum": self.goalie_minimum(ev),
         }
 
     # --- moves --------------------------------------------------------------------
@@ -227,8 +286,10 @@ class Engine:
                 next_week_drop=self._next_week(d.team),
                 drop_games_left=d.games_left if d.avail > 0 else 0,
                 uses_last_add=left_after == 0,
+                short_before=base_full.p_short,
+                short_after=ev.p_short,
             )
-            move.reasons = _reasons(move)
+            move.reasons = _reasons(move, self.goalie_min.required if self.goalie_min else 0)
             out["moves"].append(move.as_dict())
             roster = [p for p in roster if p.key != d.key] + [a]
             used_add.add(a.key)
@@ -316,10 +377,30 @@ class Engine:
             "teams": rows,
         }
 
+    def league_info(self) -> dict:
+        from . import leagues
+
+        cfg = leagues.find(self.league.name)
+        info = {
+            "name": self.league.name,
+            "key": self.league.key,
+            "week_start": str(self.league.week_start),
+            "week_end": str(self.league.week_end),
+            "max_weekly_adds": self.league.max_weekly_adds,
+            "adds_used": self.league.adds_used,
+            "min_goalie_appearances": self.league.min_goalie_appearances,
+        }
+        if cfg:
+            info["week"] = cfg.week_of(self.as_of)[0]
+            info["team"] = cfg.team_name
+            info["waivers"] = f"{cfg.waiver_days}-day continual rolling"
+        return info
+
     def digest(self, max_moves: int = 3) -> dict:
         notes = sorted({f"{p.name}: {n}" for p in self.me + self.opp for n in p.notes})
         return {
             "league": self.league.name,
+            "league_info": self.league_info(),
             "opponent": self.state.opponent.name,
             "generated_for": str(self.as_of),
             "matchup": self.matchup(),
@@ -328,7 +409,7 @@ class Engine:
             "regression_watch": self.regression_watch(),
             "next_week": self.next_week(),
             "tags": {p.name: p.tag for p in self.me},
-            "notes": notes,
+            "notes": self.prep_notes + notes,
         }
 
 
@@ -342,8 +423,15 @@ def _round(v: float, key: str) -> float | None:
     return round(v, 1)
 
 
-def _reasons(m: Move) -> list[str]:
+def _reasons(m: Move, goalie_min: int = 0) -> list[str]:
     r = []
+    if goalie_min and m.short_before is not None and m.short_after is not None:
+        if m.short_before - m.short_after >= SHORT_CHANGE:
+            r.append(f"Secures the {goalie_min}-appearance goalie minimum: chance of falling short "
+                     f"{m.short_before:.0%} to {m.short_after:.0%}")
+        elif m.short_after - m.short_before >= SHORT_CHANGE:
+            r.append(f"Raises the risk of missing the {goalie_min}-appearance goalie minimum: "
+                     f"{m.short_before:.0%} to {m.short_after:.0%}")
     if m.add.goalie:
         r.append(f"{m.add.name} projects to start about {m.add.grates.start_share:.0%} of {m.add.team}'s games")
     r.append(f"{m.add.games_left} games left for {m.add.name} vs {m.drop_games_left} for {m.drop.name}")

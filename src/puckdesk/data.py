@@ -70,6 +70,10 @@ class DataSource(Protocol):
         """Starting-goalie guesses: [{game_date, norm_name, team, status}]."""
         ...
 
+    def goalie_appearances(self, player_id: int, start: date, end: date) -> int:
+        """NHL games the goalie got into (any ice time) from start to end, inclusive."""
+        ...
+
 
 class MemoryData:
     """A small in-memory DataSource for tests and what-if experiments."""
@@ -84,6 +88,7 @@ class MemoryData:
         self.goalie_prior: dict[int, GoalieLine] = {}
         self._tags: dict[str, dict[str, str]] = {}
         self.hints: list[dict] = []
+        self.appearances: dict[int, list[date]] = {}
 
     # --- building ---------------------------------------------------------
     def add_player(self, pid: int, name: str, team: str, position: str) -> None:
@@ -139,3 +144,6 @@ class MemoryData:
 
     def goalie_hints(self, start: date, end: date) -> list[dict]:
         return [h for h in self.hints if start <= h["game_date"] <= end]
+
+    def goalie_appearances(self, player_id: int, start: date, end: date) -> int:
+        return sum(1 for d in self.appearances.get(player_id, []) if start <= d <= end)

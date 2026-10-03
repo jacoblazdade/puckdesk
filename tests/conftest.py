@@ -138,7 +138,7 @@ def make_state():
         FreeAgentIn(name="Marek Hudec", team="LAK", positions=["G"]),
     ]
     league = LeagueIn(
-        name="League 1",
+        name="Test league",  # not in leagues.toml, so the state carries its own settings
         categories=["G", "A", "SOG", "PPP", "BLK", "HIT", "W", "SV%", "GAA", "SO"],
         roster_slots={"C": 2, "LW": 2, "RW": 2, "D": 4, "Util": 1, "G": 2, "BN": 4, "IR": 2},
         week_start=WEEK_START,

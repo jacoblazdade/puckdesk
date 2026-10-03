@@ -78,7 +78,15 @@ def test_tools_and_digest(client):
 
     r = rpc(client, "tools/call", {"name": "leagues", "arguments": {}}).json()
     content = r["result"].get("structuredContent") or json.loads(r["result"]["content"][0]["text"])
-    assert content["leagues"][0]["name"] == "L" and content["leagues"][0]["last_digest"]
+    by_name = {lg["name"]: lg for lg in content["leagues"]}
+    assert [lg["name"] for lg in content["leagues"]][:2] == ["hockey1234123", "The League"]
+    assert by_name["hockey1234123"]["key"] == "477.l.60199" and by_name["The League"]["min_goalie_appearances"] == 2
+    assert by_name["L"]["last_digest"]
+
+    # Tags accept the Yahoo league key and are stored under the league name.
+    r = rpc(client, "tools/call", {"name": "set_tags", "arguments": {"league": "477.l.42782", "tags": [{"name": "Rhys Tolliver", "tag": "stream"}]}}).json()
+    content = r["result"].get("structuredContent") or json.loads(r["result"]["content"][0]["text"])
+    assert content["league"] == "The League"
 
     r = rpc(client, "tools/call", {"name": "set_tags", "arguments": {"league": "L", "tags": [{"name": "Rhys Tolliver", "tag": "core"}]}}).json()
     content = r["result"].get("structuredContent") or json.loads(r["result"]["content"][0]["text"])

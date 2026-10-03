@@ -143,8 +143,32 @@ def _final(c: Category, totals: dict[str, float], sim: TeamSim) -> np.ndarray:
     return t.get(c.key.upper(), 0.0) + sim.stats[c.stat]
 
 
-def compare(cats: list[Category], me_totals: dict, me_sim: TeamSim, opp_totals: dict, opp_sim: TeamSim) -> list[CatResult]:
+@dataclass
+class GoalieMinimum:
+    """Yahoo's weekly goalie-appearance minimum: a team below it can't win any goalie category."""
+
+    required: int
+    banked_me: float
+    banked_opp: float
+
+    def short(self, banked: float, sim: TeamSim) -> np.ndarray:
+        # Projected appearances are projected starts; relief appearances are rare and not modelled.
+        return banked + sim.stats["starts"] < self.required
+
+
+def compare(
+    cats: list[Category],
+    me_totals: dict,
+    me_sim: TeamSim,
+    opp_totals: dict,
+    opp_sim: TeamSim,
+    goalie_min: GoalieMinimum | None = None,
+) -> list[CatResult]:
     results = []
+    me_short = opp_short = None
+    if goalie_min and goalie_min.required > 0 and any(c.kind == "goalie" for c in cats):
+        me_short = goalie_min.short(goalie_min.banked_me, me_sim)
+        opp_short = goalie_min.short(goalie_min.banked_opp, opp_sim)
     for c in cats:
         a = _final(c, me_totals, me_sim)
         b = _final(c, opp_totals, opp_sim)
@@ -160,6 +184,10 @@ def compare(cats: list[Category], me_totals: dict, me_sim: TeamSim, opp_totals: 
         else:
             win = (both & (a_r > b_r)) | (~a_nan & b_nan)
         tie = (both & (a_r == b_r)) | (a_nan & b_nan)
+        if c.kind == "goalie" and me_short is not None:
+            # Short of the minimum: no win and no tie. If only the opponent is short, the category is ours.
+            win = (win | opp_short) & ~me_short
+            tie = tie & ~me_short & ~opp_short
         n = len(a)
         p_win, p_tie = win.sum() / n, tie.sum() / n
         t_me = {k.upper(): v for k, v in me_totals.items()}

@@ -275,6 +275,15 @@ class Store:
             ).fetchall()
         return [dict(r) for r in rows]
 
+    def goalie_appearances(self, player_id: int, start: date, end: date) -> int:
+        with self.conn() as c:
+            row = c.execute(
+                """select count(*) n from goalie_games where player_id = %s and game_date between %s and %s
+                   and (started or coalesce(toi_sec, 0) > 0)""",
+                (player_id, start, end),
+            ).fetchone()
+        return int(row["n"])
+
     def tag_list(self, league: str) -> list[dict]:
         with self.conn() as c:
             rows = c.execute("select name, tag, updated_at from tags where league = %s order by tag, name", (league,)).fetchall()

@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 from starlette.requests import Request
 from starlette.responses import JSONResponse, PlainTextResponse, RedirectResponse, Response
 
+from . import leagues as league_config
 from . import lines, media, names, yahoo
 from .config import Settings
 from .engine import Engine, today_eastern
@@ -30,10 +31,15 @@ puckdesk is a fantasy hockey assistant for Yahoo head-to-head category leagues.
 It projects the current matchup, suggests add/drop moves within the weekly add
 limit, and never suggests dropping a player tagged core.
 
-Typical flow: read the league from the user's Yahoo connector (for example
-Flaim), assemble a LeagueState (call league_state_guide for the exact shape),
-then call morning_digest. The latest digest is stored and can be re-read with
-latest_digest. Roster tags live on the server: set_tags / get_tags.
+Jacob's leagues are "hockey1234123" (477.l.60199) and "The League"
+(477.l.42782). Their settings, week dates, waiver rules and weekly goalie
+minimums are configured on the server; call leagues to see them.
+
+Typical flow: read the league from the user's Yahoo connector (Flaim),
+assemble a LeagueState (call league_state_guide for the exact shape), then
+call morning_digest. The latest digest is stored and can be re-read with
+latest_digest. Roster tags live on the server: set_tags / get_tags. League
+arguments take the league name or its Yahoo league key.
 
 News: search_media searches Keeping Karlsson podcast transcripts (with
 timestamps), DobberHockey articles and Game Day Tweets beat-writer posts. team_lines and lineup_changes
@@ -66,7 +72,7 @@ def build(settings: Settings) -> MCPServer:
             dg.update(_news(eng, dg))
         except Exception as e:  # noqa: BLE001 - news is a bonus; the digest still stands
             dg["notes"] = dg.get("notes", []) + [f"News unavailable: {e}"]
-        dg["digest_id"] = store.save_digest(state.league.name, dg)
+        dg["digest_id"] = store.save_digest(eng.league.name, dg)
         return dg
 
     def _news(eng: Engine, dg: dict) -> dict:
@@ -86,12 +92,21 @@ def build(settings: Settings) -> MCPServer:
 
     @mcp.tool(annotations=READ)
     def leagues() -> dict:
-        """Leagues with stored digests or tags, newest digest time first."""
-        return {"leagues": store.league_summaries()}
+        """Configured leagues (settings, current week, goalie minimum) first, then any other league
+        with stored digests or tags, with the time of the latest digest."""
+        stored = {r["name"]: r for r in store.league_summaries()}
+        today = today_eastern()
+        out = []
+        for cfg in league_config.load():
+            week, start, end = cfg.week_of(today)
+            row = stored.pop(cfg.name, {"name": cfg.name, "last_digest": None})
+            out.append({**row, **cfg.summary(), "week": week, "week_start": str(start), "week_end": str(end)})
+        return {"leagues": out + list(stored.values())}
 
     @mcp.tool(annotations=READ)
     def latest_digest(league: str) -> dict:
-        """The most recent stored digest for a league (by league name)."""
+        """The most recent stored digest for a league (by league name or Yahoo league key)."""
+        league = league_config.canonical(league)
         dg = store.latest_digest(league)
         if dg is None:
             return {"league": league, "error": "No digest stored yet for this league.", "known_leagues": store.leagues()}
@@ -132,13 +147,16 @@ def build(settings: Settings) -> MCPServer:
 
     @mcp.tool(annotations=WRITE)
     def set_tags(league: str, tags: list[TagIn]) -> dict:
-        """Tag players: core = never drop, hold = drop only for a clear upgrade, stream = drop freely."""
+        """Tag players: core = never drop, hold = drop only for a clear upgrade, stream = drop freely.
+        league is the league name or Yahoo league key."""
+        league = league_config.canonical(league)
         n = store.set_tags(league, [t.model_dump() for t in tags])
         return {"league": league, "updated": n, "tags": store.tag_list(league)}
 
     @mcp.tool(annotations=READ)
     def get_tags(league: str) -> dict:
-        """Stored roster tags for a league."""
+        """Stored roster tags for a league (by league name or Yahoo league key)."""
+        league = league_config.canonical(league)
         return {"league": league, "tags": store.tag_list(league)}
 
     @mcp.tool(annotations=READ)
@@ -275,40 +293,56 @@ def app(settings: Settings):
 
 LEAGUE_STATE_GUIDE = {
     "summary": (
-        "Build one LeagueState per league from the Yahoo connector's league settings, both rosters in the "
-        "current matchup, the scoreboard totals and the free-agent / waiver lists. Tags can be left out: the "
-        "server fills them from set_tags. Players without an NHL match fall back to baseline rates and are "
-        "listed under notes in the digest."
+        "Build one LeagueState per league from Flaim: get_matchups (this week's opponent and both teams' "
+        "category values), get_roster for both teams (positions, lineup slot, injury status), get_free_agents "
+        "(best available with % rostered) and get_transactions (at least since Monday). Flaim doesn't return "
+        "league settings, waiver status or week dates; the server has them for hockey1234123 and The League, "
+        "so league needs only the name or key. Leave tags out: the server fills them from set_tags. Players "
+        "without an NHL match fall back to baseline rates and are listed under notes in the digest."
     ),
+    "leagues": {
+        "hockey1234123": "key 477.l.60199, my team id 6 (Kapri's Papi). Goalie minimum 3 appearances.",
+        "The League": "key 477.l.42782, my team id 6 (Dude Where's Makar?). Goalie minimum 2 appearances.",
+    },
     "fields": {
-        "league.name": "Stable name used for tags and stored digests, e.g. 'League 1'.",
-        "league.categories": "Yahoo scoring categories, e.g. G, A, SOG, PPP, BLK, HIT, W, SV%, GAA, SO (League 2 adds PIM, FW, SV).",
-        "league.roster_slots": "Counts per slot: C, LW, RW, D, Util, G, BN, IR (plus F or W if the league uses them).",
-        "league.week_start / week_end": "Dates of the current scoring week (Monday to Sunday).",
+        "league.name": "hockey1234123 or The League (the Yahoo league key works too). Nothing else needed: "
+        "categories, roster, add limit, waivers, week dates and the goalie minimum come from the server's config.",
         "league.today": "Optional; defaults to today's date in US Eastern time.",
-        "league.max_weekly_adds / adds_used": "Weekly add limit and adds already used this week.",
-        "my_team.totals / opponent.totals": "Category totals banked so far this week, keyed like the categories. "
-        "Add GS (goalie starts) if known; SV, SA, GA and MIN make SV% and GAA exact.",
-        "players[]": "name, team (NHL abbreviation), positions (eligible: C, LW, RW, D, G), status (DTD, O, IR...).",
-        "free_agents[]": "Best available players across positions, including 5-10 goalies. availability FA or W; "
-        "waiver_clears for players on waivers. 40-80 players is plenty.",
+        "my_team.totals / opponent.totals": "Every category value from get_matchups, keyed by Yahoo's display "
+        "name (G, A, SOG, PPP, HIT, BLK, PIM, FW, W, GAA, SV, SV%, SHO). Also pass GA and SA, which Yahoo shows "
+        "as display-only stats: the server derives goalie minutes as GA x 60 / GAA and saves as SA - GA.",
+        "my_team.goalie_appearances / opponent.goalie_appearances": "Goalie appearances so far this week if the "
+        "matchup shows them (goalie GP). Leave out otherwise; the server counts them from NHL box scores.",
+        "players[]": "From get_roster: name, team (NHL abbreviation), positions (eligible: C, LW, RW, D, G), "
+        "slot (today's lineup slot: C, LW, RW, D, Util, G, BN, IR+) and status (DTD, O, IR, IR-LT, NA or empty).",
+        "free_agents[]": "From get_free_agents: about 40 skaters across C, LW, RW and D plus 8 goalies, with "
+        "percent_rostered (Yahoo-wide % rostered). Leave availability out; recent drops in transactions mark "
+        "waiver players and their clearing time.",
+        "transactions[]": "From get_transactions, everything since Monday 00:00 ET and at least the last 2 days: "
+        "one entry per player moved, kind add or drop (an add/drop is two entries), player, team (NHL), "
+        "positions, fantasy_team (team id, team key or name) and at (timestamp). Trades can be left out. My adds "
+        "since Monday count as adds used; a player dropped less than 2 days ago is on waivers until drop time + 2 days.",
     },
     "example": {
-        "league": {
-            "name": "League 1",
-            "categories": ["G", "A", "SOG", "PPP", "BLK", "HIT", "W", "SV%", "GAA", "SO"],
-            "roster_slots": {"C": 2, "LW": 2, "RW": 2, "D": 4, "Util": 1, "G": 2, "BN": 4, "IR": 2},
-            "week_start": "2026-10-19",
-            "week_end": "2026-10-25",
-            "max_weekly_adds": 4,
-            "adds_used": 1,
-        },
+        "league": {"name": "hockey1234123"},
         "my_team": {
-            "name": "My team",
-            "players": [{"name": "Player Name", "team": "SEA", "positions": ["LW", "RW"], "status": ""}],
-            "totals": {"G": 7, "A": 12, "SOG": 68, "PPP": 4, "BLK": 22, "HIT": 25, "W": 2, "SV%": 0.918, "GAA": 2.41, "SO": 0, "GS": 4},
+            "name": "Kapri's Papi",
+            "players": [
+                {"name": "Player Name", "team": "SEA", "positions": ["LW", "RW"], "slot": "LW", "status": ""},
+                {"name": "Goalie Name", "team": "TOR", "positions": ["G"], "slot": "G", "status": ""},
+                {"name": "Hurt Player", "team": "CBJ", "positions": ["D"], "slot": "IR+", "status": "IR"},
+            ],
+            "totals": {"G": 7, "A": 12, "PPP": 4, "SOG": 68, "HIT": 25, "BLK": 22, "W": 2, "GAA": 2.41,
+                       "SV%": 0.918, "SHO": 0, "GA": 5, "SA": 61},
+            "goalie_appearances": 2,
         },
         "opponent": {"name": "Opponent", "players": [], "totals": {}},
-        "free_agents": [{"name": "Free Agent", "team": "MIN", "positions": ["D"], "availability": "FA", "percent_rostered": 6}],
+        "free_agents": [{"name": "Free Agent", "team": "MIN", "positions": ["D"], "percent_rostered": 6}],
+        "transactions": [
+            {"kind": "add", "player": "Free Agent Two", "team": "UTA", "positions": ["C"], "fantasy_team": 6,
+             "at": "2026-10-20T14:05:00-04:00"},
+            {"kind": "drop", "player": "Dropped Guy", "team": "NSH", "positions": ["RW"], "fantasy_team": 3,
+             "at": "2026-10-21T22:40:00-04:00"},
+        ],
     },
 }
