@@ -6,15 +6,50 @@ set -euo pipefail
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$REPO"
 
+# macOS blocks launchd jobs from reading these folders.
+case "$REPO/" in
+  "$HOME/Documents/"*|"$HOME/Desktop/"*|"$HOME/Downloads/"*)
+    echo "The repository is in $REPO, and launchd jobs can't read Documents, Desktop or Downloads."
+    echo "Move it first, for example:  mv \"$REPO\" ~/puckdesk && bash ~/puckdesk/deploy/macmini/setup.sh"
+    exit 1 ;;
+esac
+
 echo "==> Homebrew packages"
 command -v brew >/dev/null || { echo "Install Homebrew first: https://brew.sh"; exit 1; }
-brew list postgresql@17 >/dev/null 2>&1 || brew install postgresql@17
+# A force-linked libpq can make the link step fail; puckdesk calls the keg's
+# own binaries, so that is only a warning.
+if ! brew list postgresql@17 >/dev/null 2>&1; then
+  brew install postgresql@17 || echo "warning: postgresql@17 installed but not linked (often a linked libpq); continuing"
+fi
+brew list postgresql@17 >/dev/null 2>&1 || { echo "postgresql@17 failed to install"; exit 1; }
 command -v uv >/dev/null || brew install uv
 command -v ffmpeg >/dev/null || brew install ffmpeg   # audio decoding for Whisper
-brew services start postgresql@17
+
+echo "==> Postgres"
 PG_BIN="$(brew --prefix postgresql@17)/bin"
-for _ in $(seq 1 30); do "$PG_BIN/pg_isready" -q && break; sleep 1; done
-"$PG_BIN/createdb" puckdesk 2>/dev/null || echo "database puckdesk already exists"
+PG_DATA="$(brew --prefix)/var/postgresql@17"
+PG_LOG="$(brew --prefix)/var/log/postgresql@17.log"
+# When linking fails, Homebrew skips the post-install step that creates the data directory.
+if [ ! -f "$PG_DATA/PG_VERSION" ]; then
+  echo "no data directory in $PG_DATA; running brew postinstall postgresql@17"
+  brew postinstall postgresql@17
+fi
+brew services restart postgresql@17
+PG_UP=no
+for _ in $(seq 1 30); do
+  if "$PG_BIN/pg_isready" -q; then PG_UP=yes; break; fi
+  sleep 1
+done
+if [ "$PG_UP" != yes ]; then
+  echo "Postgres is not answering after 30 s. Last lines of $PG_LOG:"
+  tail -40 "$PG_LOG" 2>/dev/null || echo "(no log at $PG_LOG)"
+  exit 1
+fi
+if [ "$("$PG_BIN/psql" -d postgres -tAc "select 1 from pg_database where datname = 'puckdesk'")" = 1 ]; then
+  echo "database puckdesk already exists"
+else
+  "$PG_BIN/createdb" puckdesk
+fi
 
 echo "==> Python environment (with local Whisper)"
 uv sync --extra mac
