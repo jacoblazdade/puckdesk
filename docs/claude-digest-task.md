@@ -49,7 +49,9 @@ For each of my two Yahoo fantasy hockey leagues, **hockey1234123**
 6. Finish with at most three lines per league: the moves to make before
    waivers and the swing categories (for rebuild, also the best `sell_high`
    and `breakout_watch` names). If `matchup.goalie_minimum` shows a real
-   chance of falling short, say how many appearances are still needed. If a
+   chance of falling short, say how many appearances are still needed
+   (`so_far_from` shows where the count came from). Pass goalie GP as
+   `goalie_appearances` only if the Yahoo matchup shows it. If a
    move says `confirm_goalie_start`, say it needs the 17:00 starter check.
 7. On Sundays, also call puckdesk `search_media` for my players and the top
    free agents over the last 7 days, and add what Keeping Karlsson and

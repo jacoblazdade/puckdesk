@@ -54,6 +54,12 @@ class NHL:
     def player(self, player_id: int) -> dict:
         return self.get(f"{WEB}/player/{player_id}/landing")
 
+    def scores(self, day: date) -> dict:
+        return self.get(f"{WEB}/score/{day.isoformat()}")
+
+    def boxscore(self, game_id: int) -> dict:
+        return self.get(f"{WEB}/gamecenter/{game_id}/boxscore")
+
     # --- stats REST ------------------------------------------------------------
     def report(self, entity: str, report: str, cayenne: str, per_game: bool) -> Iterator[dict]:
         """Page through a stats report. entity: skater or goalie."""
@@ -288,6 +294,43 @@ def sync_rosters(nhl: NHL, store: Store) -> int:
             log.warning("roster %s failed: %s", t, e)
     sync_birth_dates(nhl, store)
     return total
+
+
+STARTED_STATES = {"LIVE", "CRIT", "FINAL", "OFF"}
+
+
+def toi_seconds(toi: str | None) -> int:
+    """'57:53' -> 3473."""
+    if not toi or ":" not in toi:
+        return 0
+    m, s = toi.split(":", 1)
+    return int(m) * 60 + int(s)
+
+
+def parse_boxscore_goalies(body: dict) -> dict[int, int]:
+    """Goalies who got into the game: {player id: seconds on ice}."""
+    out = {}
+    for side in ("awayTeam", "homeTeam"):
+        for g in body.get("playerByGameStats", {}).get(side, {}).get("goalies", []):
+            sec = toi_seconds(g.get("toi"))
+            if sec > 0:
+                out[int(g["playerId"])] = sec
+    return out
+
+
+def live_games(nhl: NHL, day: date, ingested: set[int]) -> list[dict]:
+    """Games on an Eastern date that have started, with the goalies who played in those not ingested yet."""
+    out = []
+    for g in nhl.scores(day).get("games", []):
+        state = g.get("gameState")
+        if state not in STARTED_STATES:
+            continue
+        gid = int(g["id"])
+        start = datetime.fromisoformat(g["startTimeUTC"].replace("Z", "+00:00"))
+        goalies = {} if gid in ingested else parse_boxscore_goalies(nhl.boxscore(gid))
+        out.append({"id": gid, "date": day, "start": start, "state": state, "home": g["homeTeam"]["abbrev"],
+                    "away": g["awayTeam"]["abbrev"], "goalies": goalies, "ingested": gid in ingested})
+    return out
 
 
 def sync_birth_dates(nhl: NHL, store: Store, limit: int = 400) -> int:

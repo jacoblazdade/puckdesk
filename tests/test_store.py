@@ -2,7 +2,7 @@
 
 import json
 import tempfile
-from datetime import date
+from datetime import date, datetime, timezone
 
 import pytest
 
@@ -137,3 +137,10 @@ def test_value_signals_in_postgres(store):
     assert store.strategy("Z") is None
     store.set_strategy("Z", "rebuild", "sell vets")
     assert store.strategy("Z")["strategy"] == "rebuild" and store.strategy("Z")["note"] == "sell vets"
+
+
+def test_goalie_game_log_has_start_times(store):
+    # After the roundtrip: Kai Moreau played SEA at MIN, 19 Oct 23:00 UTC.
+    log = store.goalie_game_log(8480009, date(2026, 10, 19), date(2026, 10, 25))
+    assert [(g["game_id"], g["start"]) for g in log] == [(2026020101, datetime(2026, 10, 19, 23, tzinfo=timezone.utc))]
+    assert store.goalie_game_log(8480009, date(2026, 10, 20), date(2026, 10, 25)) == []

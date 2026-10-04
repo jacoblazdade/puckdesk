@@ -166,7 +166,7 @@ def test_engine_values_securing_the_goalie_minimum():
     assert eng.league.name == "hockey1234123" and eng.league.max_weekly_adds == 5
     m = eng.matchup()
     gm = m["goalie_minimum"]
-    assert gm["required"] == 3 and gm["me"]["so_far"] == 2 and gm["so_far_from"]["me"] == "matchup"
+    assert gm["required"] == 3 and gm["me"]["so_far"] == 2 and gm["so_far_from"]["me"] == {"matchup": 2, "used": 2}
     assert gm["me"]["p_short"] > 0.4 and gm["opp"]["p_short"] == 0
     keys = [c["key"] for c in m["categories"]]
     assert "SHO" in keys and "SO" not in keys  # Yahoo's label
@@ -186,7 +186,7 @@ def test_appearances_fall_back_to_box_scores():
     data.appearances[lach.id] = [date(2026, 10, 19), date(2026, 10, 21), date(2026, 10, 12)]  # last one: last week
     eng = Engine(data, short_on_goalies_state(apps=None), n_sims=500, now=NOW)
     gm = eng.matchup()["goalie_minimum"]
-    assert gm["me"]["so_far"] == 2 and gm["so_far_from"]["me"].startswith("NHL box scores")
+    assert gm["me"]["so_far"] == 2 and gm["so_far_from"]["me"]["box_scores"] == 2
 
 
 def test_digest_carries_league_info():

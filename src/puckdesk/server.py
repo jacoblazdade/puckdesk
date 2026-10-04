@@ -82,7 +82,7 @@ def build(settings: Settings) -> MCPServer:
         except Exception as e:  # noqa: BLE001 - news is a bonus; the digest still stands
             dg["notes"] = dg.get("notes", []) + [f"News unavailable: {e}"]
         dg["news_notes"] = {}
-        dg["digest_id"] = store.save_digest(eng.league.name, dg)
+        dg["digest_id"] = store.save_digest(eng.league.name, dg, state.model_dump(mode="json"))
         return dg
 
     def _snapshot(state: LeagueState) -> None:
@@ -353,8 +353,12 @@ LEAGUE_STATE_GUIDE = {
         "my_team.totals / opponent.totals": "Every category value from get_matchups, keyed by Yahoo's display "
         "name (G, A, SOG, PPP, HIT, BLK, PIM, FW, W, GAA, SV, SV%, SHO). Also pass GA and SA, which Yahoo shows "
         "as display-only stats: the server derives goalie minutes as GA x 60 / GAA and saves as SA - GA.",
-        "my_team.goalie_appearances / opponent.goalie_appearances": "Goalie appearances so far this week if the "
-        "matchup shows them (goalie GP). Leave out otherwise; the server counts them from NHL box scores.",
+        "my_team.goalie_appearances / opponent.goalie_appearances": "Goalie appearances so far this week only if "
+        "the matchup shows them (goalie GP); this overrides the server's count. Leave out otherwise: the server "
+        "counts NHL games (box scores and live scores) for each goalie while he was rostered, including goalies "
+        "dropped this week (from transactions), with GA, GAA and SA as a floor.",
+        "opponent.team_id": "Optional: the opponent's Yahoo team id or key, so his transactions (dropped goalies) "
+        "are matched; his team name works too.",
         "players[]": "From get_roster: name, team (NHL abbreviation), positions (eligible: C, LW, RW, D, G), "
         "slot (today's lineup slot: C, LW, RW, D, Util, G, BN, IR+), status (DTD, O, IR, IR-LT, NA or empty) "
         "and percent_rostered if Flaim shows it. Every % rostered passed in is stored as a daily snapshot; "

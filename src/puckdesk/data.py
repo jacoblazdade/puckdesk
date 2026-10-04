@@ -7,10 +7,13 @@ The in-memory version keeps tests and experiments free of a database.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta
+from zoneinfo import ZoneInfo
 from typing import Protocol
 
 from . import names
+
+EASTERN = ZoneInfo("America/New_York")
 
 
 @dataclass
@@ -86,6 +89,16 @@ class DataSource(Protocol):
         """NHL games the goalie got into (any ice time) from start to end, inclusive."""
         ...
 
+    def goalie_game_log(self, player_id: int, start: date, end: date) -> list[dict]:
+        """Ingested games the goalie got into, start to end inclusive: [{"game_id", "start" (aware datetime)}]."""
+        ...
+
+    def live_games(self, dates: list[date]) -> list[dict]:
+        """NHL games on these (Eastern) dates that have started: live, critical, final or official.
+        [{"id", "date", "start", "state", "home", "away", "goalies": {player_id: seconds on ice}}];
+        goalies is filled for games whose box scores aren't ingested yet."""
+        ...
+
     # Value signals (value.py). Optional: missing methods mean no signal.
     def team_roles(self, team: str) -> dict[str, dict]:
         """Daily Faceoff roles keyed by normalised name: {"line": "f1".."f4"/"d1".."d3", "pp": "pp1"/"pp2"}."""
@@ -127,7 +140,8 @@ class MemoryData:
         self.goalie_prior: dict[int, GoalieLine] = {}
         self._tags: dict[str, dict[str, str]] = {}
         self.hints: list[dict] = []
-        self.appearances: dict[int, list[date]] = {}
+        self.appearances: dict[int, list] = {}  # player id -> dates, or (game id, start datetime) pairs
+        self.live: list[dict] = []
         self.roles: dict[str, dict[str, dict]] = {}
         self.ice: dict[int, IceTime] = {}
         self.rostered: dict[str, tuple[float, float, int]] = {}
@@ -191,7 +205,21 @@ class MemoryData:
         return [h for h in self.hints if start <= h["game_date"] <= end]
 
     def goalie_appearances(self, player_id: int, start: date, end: date) -> int:
-        return sum(1 for d in self.appearances.get(player_id, []) if start <= d <= end)
+        return len(self.goalie_game_log(player_id, start, end))
+
+    def goalie_game_log(self, player_id: int, start: date, end: date) -> list[dict]:
+        out = []
+        for item in self.appearances.get(player_id, []):
+            if isinstance(item, tuple):
+                game_id, at = item
+            else:
+                game_id, at = f"{player_id}-{item}", datetime.combine(item, time(19), EASTERN)
+            if start <= at.astimezone(EASTERN).date() <= end:
+                out.append({"game_id": game_id, "start": at})
+        return out
+
+    def live_games(self, dates: list[date]) -> list[dict]:
+        return [g for g in self.live if g["date"] in dates]
 
     def team_roles(self, team: str) -> dict[str, dict]:
         return self.roles.get(names.team(team), {})

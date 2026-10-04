@@ -94,6 +94,8 @@ create table if not exists digests (
     payload     jsonb not null
 );
 create index if not exists digests_league on digests (league, created_at desc);
+-- The LeagueState each digest was built from, so a digest can be replayed.
+alter table digests add column if not exists state jsonb;
 
 -- Yahoo OAuth tokens, once Yahoo approves API access.
 create table if not exists oauth_tokens (

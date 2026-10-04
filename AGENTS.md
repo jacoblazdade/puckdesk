@@ -92,8 +92,19 @@ in the rest before the engine runs:
   waivers until drop time + 2 days; my adds since Monday 00:00 ET are the
   adds used.
 
-Goalie appearances so far come from the matchup when Claude passes them,
-otherwise from NHL box scores for the team's current goalies.
+Goalie appearances so far (`appearances.py`): an explicit
+`goalie_appearances` overrides everything. Otherwise every goalie the team had
+this week counts, including goalies dropped (rostered windows from the
+transactions), for games that started inside his window: ingested box scores
+plus started games not ingested yet or still live (NHL score feed for
+yesterday and today, Eastern; box scores fetched only for games not
+ingested). Each goalie-game counts once. The Yahoo totals give a floor:
+appearances >= ceil(minutes / 65), minutes = GA x 60 / GAA with GAA read at
+its rounding edge (or MIN), and at least 1 with any SA, SV, GA or W. Games
+that already started are left out of every player's remaining projection.
+`so_far_from` is a breakdown (box_scores, live_or_unprocessed,
+dropped_goalies, yahoo_minutes_floor, used). Past G slots aren't known, so
+every appearance while rostered counts as active.
 
 ## Layout
 
@@ -134,6 +145,11 @@ run; only the server needs a restart. The repo must stay outside
 
 ## Sources
 
+- **NHL**: the home network drops overnight now and then (03:20 to 06:47
+  Cologne on 4 Oct 2026), so the 05:30 and 06:45 nightly runs can fail; each
+  nightly step runs on its own and the 12:00 run catches up. The live lookup
+  covers the morning digest in between. Each digest stores the LeagueState it
+  was built from (`digests.state`) so it can be replayed.
 - **Daily Faceoff**: team line combinations come from `__NEXT_DATA__`
   (`.props.pageProps.combinations.players`). The starting-goalies page is
   client-rendered and not parsed. Utah's slug is `utah-mammoth`.

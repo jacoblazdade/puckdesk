@@ -58,6 +58,9 @@ class FreeAgentIn(PlayerIn):
 
 class TeamIn(BaseModel):
     name: str
+    team_id: str | int | None = Field(
+        default=None, description="Yahoo team id or key, to match this team's transactions (optional)"
+    )
     players: list[PlayerIn]
     totals: dict[str, float] = Field(
         default_factory=dict,
@@ -67,8 +70,9 @@ class TeamIn(BaseModel):
     )
     goalie_appearances: int | None = Field(
         default=None,
-        description="Goalie appearances banked this week, if the matchup shows them. "
-        "Otherwise the server counts them from NHL box scores for the team's current goalies.",
+        description="Goalie appearances banked this week, if the matchup shows them; overrides everything. "
+        "Otherwise the server counts NHL games (box scores and live scores) for the team's goalies while "
+        "they were rostered, with the Yahoo goalie totals (GA, GAA, SA) as a floor.",
     )
 
 

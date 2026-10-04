@@ -60,12 +60,24 @@ def cmd_nightly(a) -> None:
 
     nhl, store = NHL(), _store()
     today = date.today()
-    out = {
-        "games_scheduled": sync_schedule(nhl, store, season_of(today)),
-        "roster_players": sync_rosters(nhl, store),
-        **sync_games(nhl, store, today - timedelta(days=3), today),
-    }
+    out: dict = {}
+    failed = []
+    # Each step on its own: a network blip in one (the schedule, say) must not cost the box scores.
+    steps = (
+        ("games_scheduled", lambda: sync_schedule(nhl, store, season_of(today))),
+        ("roster_players", lambda: sync_rosters(nhl, store)),
+        ("games", lambda: sync_games(nhl, store, today - timedelta(days=3), today)),
+    )
+    for name, step in steps:
+        try:
+            result = step()
+            out.update(result if isinstance(result, dict) else {name: result})
+        except Exception as e:  # noqa: BLE001
+            failed.append(name)
+            out[name] = f"error: {e}"
     print(json.dumps(out))
+    if failed:
+        raise SystemExit(f"nightly: {', '.join(failed)} failed")
 
 
 def cmd_verify_nhl(a) -> None:

@@ -83,6 +83,8 @@ class Projector:
         self.as_of = as_of
         self.skater_cats = skater_cats
         self.stored_tags = data.tags(league.name)
+        # (team, date) of games that already started: Yahoo's totals include them, so they aren't projected.
+        self.started: set[tuple[str, date]] = set()
         # Starting-goalie guesses (Game Day Tweets) override season start shares on their dates.
         hints = data.goalie_hints(as_of, league.week_end) if hasattr(data, "goalie_hints") else []
         self.hint_by_goalie = {(h["game_date"], h["norm_name"]): h["status"] for h in hints}
@@ -104,7 +106,7 @@ class Projector:
             team = ref.team
         s = start or self.as_of
         e = end or self.league.week_end
-        dates = self.data.team_dates(team, s, e)
+        dates = [d for d in self.data.team_dates(team, s, e) if (team, d) not in self.started]
         status = (p.status or "").upper()
         avail = 0.0 if p.is_out else (DTD_PLAY_PROB if status in {"DTD", "GTD", "Q"} else 1.0)
         if p.in_ir_slot and not status:

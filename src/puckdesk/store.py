@@ -33,6 +33,7 @@ class Store:
     def __init__(self, dsn: str):
         self.dsn = dsn
         self._keeper_cache: tuple[int | None, list[dict]] = (None, [])
+        self._live_cache: dict[date, tuple[float, list[dict]]] = {}
 
     def conn(self) -> psycopg.Connection:
         return psycopg.connect(self.dsn, row_factory=dict_row, autocommit=True)
@@ -130,10 +131,11 @@ class Store:
                 )
         return len(tags)
 
-    def save_digest(self, league: str, payload: dict) -> int:
+    def save_digest(self, league: str, payload: dict, state: dict | None = None) -> int:
         with self.conn() as c:
             row = c.execute(
-                "insert into digests (league, payload) values (%s, %s) returning id", (league, Jsonb(payload))
+                "insert into digests (league, payload, state) values (%s, %s, %s) returning id",
+                (league, Jsonb(payload), Jsonb(state) if state is not None else None),
             ).fetchone()
         return row["id"]
 
@@ -301,6 +303,36 @@ class Store:
                 (limit,),
             ).fetchall()
         return [r["id"] for r in rows]
+
+    def goalie_game_log(self, player_id: int, start: date, end: date) -> list[dict]:
+        with self.conn() as c:
+            rows = c.execute(
+                """select g.game_id, coalesce(s.start_utc, (g.game_date + time '19:00') at time zone 'America/New_York') as start
+                   from goalie_games g left join games s on s.id = g.game_id
+                   where g.player_id = %s and g.game_date between %s and %s and (g.started or coalesce(g.toi_sec, 0) > 0)""",
+                (player_id, start, end),
+            ).fetchall()
+        return [{"game_id": r["game_id"], "start": r["start"]} for r in rows]
+
+    def live_games(self, dates: list[date], max_age: float = 90.0) -> list[dict]:
+        """Started games from the NHL score feed, cached briefly; box scores only for games not ingested yet."""
+        import time as _time
+
+        from . import nhl
+
+        out: list[dict] = []
+        for d in dates:
+            cached = self._live_cache.get(d)
+            if cached and _time.monotonic() - cached[0] < max_age:
+                out += cached[1]
+                continue
+            with self.conn() as c:
+                ingested = {r["game_id"] for r in c.execute(
+                    "select distinct game_id from goalie_games where game_date = %s", (d,)).fetchall()}
+            games = nhl.live_games(nhl.NHL(), d, ingested)
+            self._live_cache[d] = (_time.monotonic(), games)
+            out += games
+        return out
 
     def set_birth_date(self, player_id: int, birth: str | date) -> None:
         with self.conn() as c:

@@ -9,9 +9,10 @@ from zoneinfo import ZoneInfo
 import numpy as np
 from scipy.optimize import linear_sum_assignment
 
-from . import categories, leagues
+from . import appearances, categories, leagues, names
 from .data import DataSource
-from .leaguestate import complete
+from .leaguestate import EASTERN as ET
+from .leaguestate import complete, eastern
 from .models import LeagueState, TeamIn
 from .projection import SLOT_ACCEPTS, Proj, Projector, Usage
 from .simulate import CatResult, GoalieMinimum, compare, simulate_team
@@ -108,6 +109,7 @@ class Engine:
         self.data = data
         self.state, self.prep_notes = complete(state, now)
         self.league = self.state.league
+        self.now = eastern(now) if now else datetime.now(EASTERN)
         self.as_of = self.league.today or (now.date() if now else today_eastern())
         self.cats = [categories.resolve(k) for k in self.league.categories]
         self.labels = {categories.resolve(k).key: k for k in self.league.categories}  # SO -> SHO, as Yahoo shows it
@@ -115,6 +117,10 @@ class Engine:
         self.n_sims = n_sims
         self.seed = seed
         self.projector = Projector(data, self.league, self.as_of, self.skater_cats)
+        self.live, self.live_error = self._live_games()
+        self.projector.started = {
+            (names.team(t), g["date"]) for g in self.live if g["date"] >= self.as_of for t in (g["home"], g["away"])
+        }
         stored = data.strategy(self.league.name) if hasattr(data, "strategy") else None
         self.strategy = leagues.strategy_for(self.league.name, stored)
         self.weights = WEIGHTS[self.strategy["strategy"]]
@@ -127,26 +133,37 @@ class Engine:
         self.goalie_min: GoalieMinimum | None = None
         self.apps_source = None
         if self.league.min_goalie_appearances and any(c.kind == "goalie" for c in self.cats):
-            me, src_me = self._appearances(self.state.my_team, self.me)
-            opp, src_opp = self._appearances(self.state.opponent, self.opp)
-            self.goalie_min = GoalieMinimum(self.league.min_goalie_appearances, me, opp)
-            self.apps_source = {"me": src_me, "opp": src_opp}
+            me = self._appearances(self.state.my_team, self.me, mine=True)
+            opp = self._appearances(self.state.opponent, self.opp, mine=False)
+            self.goalie_min = GoalieMinimum(self.league.min_goalie_appearances, me.used, opp.used)
+            self.apps_source = {"me": me.breakdown, "opp": opp.breakdown}
 
-    def _appearances(self, team: TeamIn, projs: list[Proj]) -> tuple[float, str]:
-        """Goalie appearances banked this week: from the matchup if given, else NHL box scores."""
-        if team.goalie_appearances is not None:
-            apps, source = float(team.goalie_appearances), "matchup"
-        elif hasattr(self.data, "goalie_appearances"):
-            until = self.as_of - timedelta(days=1)
-            apps = float(sum(self.data.goalie_appearances(p.ref.id, self.league.week_start, until)
-                             for p in projs if p.goalie and p.ref))
-            source = "NHL box scores for the current goalies"
-        else:
-            return 0.0, "unknown"
+    def _live_games(self) -> tuple[list[dict], str | None]:
+        """Started NHL games yesterday and today (Eastern): finished but not ingested, or still going."""
+        if not hasattr(self.data, "live_games"):
+            return [], None
+        try:
+            return self.data.live_games([self.as_of - timedelta(days=1), self.as_of]), None
+        except Exception as e:  # noqa: BLE001 - box scores and the Yahoo floor still work without it
+            self.prep_notes.append(f"Live NHL scores unavailable ({e}); goalie appearances from box scores "
+                                   "and the Yahoo totals only.")
+            return [], str(e)
+
+    def _appearances(self, team: TeamIn, projs: list[Proj], mine: bool) -> appearances.Banked:
+        """Goalie appearances banked this week; see appearances.py."""
+        week_start = datetime.combine(self.league.week_start, datetime.min.time(), ET)
+        goalies = appearances.goalies_for(
+            team, projs, self.state.transactions or [], mine, leagues.find(self.league.name),
+            lambda name, nhl_team: self.data.find_player(name, nhl_team, True), week_start, self.now,
+        )
+        b = appearances.banked(self.data, goalies, self.live, team.totals, team.goalie_appearances, week_start,
+                               self.now, self.live_error, " (mine)" if mine else f" ({team.name})")
+        if b.note:
+            self.prep_notes.append(b.note)
         # With no goals against there's no GAA to derive minutes from; count 60 per appearance.
-        if apps and "MIN" not in team.totals and "GS" not in team.totals:
-            team.totals["MIN"] = 60.0 * apps
-        return apps, source
+        if b.used and "MIN" not in team.totals and "GS" not in team.totals:
+            team.totals["MIN"] = 60.0 * b.used
+        return b
 
     # --- evaluation -------------------------------------------------------------
     def _opp(self, n: int):
